@@ -49,6 +49,7 @@ def get_events(page_number=0, page_size=10):
 
 def get_latest_events(page_count=3, page_size=10):
     """
+    운영용:
     WAHIS의 최신 데이터를 지정한 페이지 수만큼 가져온다.
 
     기본값:
@@ -73,7 +74,7 @@ def get_latest_events(page_count=3, page_size=10):
                     page_size=page_size
                 )
 
-                events = data["list"]
+                events = data.get("list", [])
 
                 all_events.extend(events)
 
@@ -90,18 +91,98 @@ def get_latest_events(page_count=3, page_size=10):
 
                 time.sleep(5)
 
-        # 페이지 사이 잠시 대기
         if page < page_count - 1:
             time.sleep(2)
 
     print()
-    print(f"최신 데이터 수집 완료: {len(all_events)}건")
+    print(
+        f"최신 데이터 수집 완료: "
+        f"{len(all_events)}건"
+    )
+
+    return all_events
+
+
+def get_all_events(page_size=10):
+    """
+    초기 적재용:
+    WAHIS 전체 데이터를 마지막 페이지까지 수집한다.
+    """
+
+    all_events = []
+    page_number = 0
+    total_size = None
+
+    while True:
+
+        while True:
+            try:
+
+                print(
+                    f"{page_number + 1} 페이지 수집 중..."
+                )
+
+                data = get_events(
+                    page_number=page_number,
+                    page_size=page_size
+                )
+
+                break
+
+            except requests.exceptions.RequestException as e:
+
+                print("요청 실패:", e)
+                print("5초 후 다시 시도합니다...")
+
+                time.sleep(5)
+
+        events = data.get("list", [])
+
+        if total_size is None:
+
+            total_size = data.get("totalSize", 0)
+
+            print(
+                f"전체 데이터 수: {total_size}건"
+            )
+
+        all_events.extend(events)
+
+        print(
+            f"→ {len(events)}건 수집 "
+            f"(누적 {len(all_events)}/{total_size})"
+        )
+
+        # 전체 데이터 수집 완료
+        if len(all_events) >= total_size:
+            break
+
+        # 혹시 API가 빈 페이지를 반환할 경우 무한루프 방지
+        if not events:
+            print(
+                "더 이상 데이터가 없어 수집을 종료합니다."
+            )
+            break
+
+        page_number += 1
+
+        # 서버에 너무 빠르게 요청하지 않도록 대기
+        time.sleep(1)
+
+    print()
+    print("=" * 50)
+    print(
+        f"전체 데이터 수집 완료: "
+        f"{len(all_events)}건"
+    )
+    print("=" * 50)
 
     return all_events
 
 
 if __name__ == "__main__":
 
+    # 평소 테스트할 때는 최신 데이터만 확인
     events = get_latest_events()
 
     print()
@@ -110,6 +191,7 @@ if __name__ == "__main__":
     print("=" * 50)
 
     for event in events:
+
         print(
             f"report_id={event['reportId']} | "
             f"country={event['country']} | "

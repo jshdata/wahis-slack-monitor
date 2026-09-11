@@ -1,6 +1,7 @@
-import mariadb
 import os
 from datetime import datetime
+
+import pymysql
 from dotenv import load_dotenv
 
 
@@ -9,21 +10,30 @@ load_dotenv()
 
 def get_connection():
     """
-    MariaDB 연결
+    Aiven MySQL 연결
     """
 
-    return mariadb.connect(
+    return pymysql.connect(
         host=os.getenv("DB_HOST"),
-        port=int(os.getenv("DB_PORT", 3306)),
+        port=int(os.getenv("DB_PORT")),
         user=os.getenv("DB_USER"),
         password=os.getenv("DB_PASSWORD"),
-        database=os.getenv("DB_NAME")
+        database=os.getenv("DB_NAME"),
+
+        charset="utf8mb4",
+        connect_timeout=10,
+        read_timeout=10,
+        write_timeout=10,
+
+        ssl={
+            "ca": os.getenv("DB_SSL_CA")
+        }
     )
 
 
 def convert_datetime(date_string):
     """
-    WAHIS 날짜 문자열을 MariaDB DATETIME으로 변환
+    WAHIS 날짜 문자열을 MySQL DATETIME으로 변환
     """
 
     if not date_string:
@@ -50,7 +60,7 @@ def is_report_exists(report_id):
         sql = """
         SELECT report_id
         FROM disease_reports
-        WHERE report_id = ?
+        WHERE report_id = %s
         """
 
         cursor.execute(
@@ -62,7 +72,7 @@ def is_report_exists(report_id):
 
         return result is not None
 
-    except mariadb.Error as e:
+    except pymysql.MySQLError as e:
 
         print("리포트 조회 실패:", e)
 
@@ -98,7 +108,7 @@ def insert_disease_report(event):
             disease,
             submission_date
         )
-        VALUES (?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s)
 
         ON DUPLICATE KEY UPDATE
             event_id = VALUES(event_id),
@@ -129,7 +139,7 @@ def insert_disease_report(event):
             f"report_id={event['reportId']}"
         )
 
-    except mariadb.Error as e:
+    except pymysql.MySQLError as e:
 
         if conn:
             conn.rollback()
@@ -157,7 +167,7 @@ if __name__ == "__main__":
 
         conn.close()
 
-    except mariadb.Error as e:
+    except pymysql.MySQLError as e:
 
         print("DB 연결 실패:", e)
 

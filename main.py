@@ -16,7 +16,7 @@ def main():
 
     # 최신 3페이지 조회
     events = get_latest_events(
-        page_count=3,
+        page_count=2,
         page_size=10
     )
 

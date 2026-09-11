@@ -1,3 +1,4 @@
 requests
-mariadb
+pymysql
+cryptography
 python-dotenv
