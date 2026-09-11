@@ -1,0 +1,46 @@
+name: WAHIS Monitor
+
+on:
+  # 10분마다 자동 실행
+  schedule:
+    - cron: "*/10 * * * *"
+
+  # GitHub Actions 화면에서 수동 실행 가능
+  workflow_dispatch:
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # SLACK_MONITOR_ENV Secret을 .env 파일로 생성
+      - name: Create .env file
+        env:
+          SLACK_MONITOR_ENV: ${{ secrets.SLACK_MONITOR_ENV }}
+        run: |
+          printf '%s\n' "$SLACK_MONITOR_ENV" > .env
+
+      # Aiven CA 인증서 생성
+      - name: Create Aiven CA certificate
+        env:
+          DB_SSL_CA_CERT: ${{ secrets.DB_SSL_CA_CERT }}
+        run: |
+          printf '%s\n' "$DB_SSL_CA_CERT" > ca.pem
+
+      # WAHIS 모니터 실행
+      - name: Run WAHIS Monitor
+        run: |
+          python main.py
