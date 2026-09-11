@@ -3,8 +3,8 @@ name: WAHIS Monitor
 on:
   # 10분마다 자동 실행
   schedule:
-    - cron: "*/10 * * * *"
-
+    - cron: "7-59/10 * * * *"
+    
   # GitHub Actions 화면에서 수동 실행 가능
   workflow_dispatch:
 
