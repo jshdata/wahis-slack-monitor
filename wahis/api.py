@@ -5,16 +5,41 @@ import time
 URL = "https://wahis.woah.org/api/v1/pi/event/filtered-list?language=en"
 
 
+# ---------------------------------------------------------
+# 모니터링 대상 질병
+# ---------------------------------------------------------
+# HPAI : Highly Pathogenic Avian Influenza
+# ASF  : African Swine Fever
+# LSD  : Lumpy Skin Disease
+# FMD  : Foot and Mouth Disease
+
+DISEASES = {
+    "HPAI": 668,
+    "ASF": 55,
+    "LSD": 769,
+    "FMD": 437
+}
+
+
 def get_events(page_number=0, page_size=10):
     """
     WAHIS에서 특정 페이지의 이벤트 데이터를 가져온다.
+
+    모니터링 대상:
+    - HPAI
+    - ASF
+    - LSD
+    - FMD
     """
 
     payload = {
         "eventIds": [],
         "reportIds": [],
         "countries": [],
-        "firstDiseases": [668],
+
+        # HPAI + ASF + LSD + FMD
+        "firstDiseases": list(DISEASES.values()),
+
         "secondDiseases": [],
         "animalTypes": [],
         "eventStartDate": None,
@@ -56,6 +81,12 @@ def get_latest_events(page_count=3, page_size=10):
     - 3페이지
     - 페이지당 10건
     - 총 최대 30건
+
+    현재 대상:
+    - HPAI
+    - ASF
+    - LSD
+    - FMD
     """
 
     all_events = []
@@ -64,6 +95,7 @@ def get_latest_events(page_count=3, page_size=10):
 
         while True:
             try:
+
                 print(
                     f"최신 데이터 "
                     f"{page + 1}/{page_count} 페이지 수집 중..."
@@ -91,6 +123,7 @@ def get_latest_events(page_count=3, page_size=10):
 
                 time.sleep(5)
 
+        # WAHIS 서버에 너무 빠르게 요청하지 않도록 대기
         if page < page_count - 1:
             time.sleep(2)
 
@@ -106,7 +139,11 @@ def get_latest_events(page_count=3, page_size=10):
 def get_all_events(page_size=10):
     """
     초기 적재용:
+    HPAI + ASF + LSD + FMD의
     WAHIS 전체 데이터를 마지막 페이지까지 수집한다.
+
+    Slack 알림용이 아니라
+    DB 초기 데이터 구축에 사용한다.
     """
 
     all_events = []
@@ -138,6 +175,7 @@ def get_all_events(page_size=10):
 
         events = data.get("list", [])
 
+        # 첫 페이지에서 전체 데이터 수 확인
         if total_size is None:
 
             total_size = data.get("totalSize", 0)
@@ -157,11 +195,15 @@ def get_all_events(page_size=10):
         if len(all_events) >= total_size:
             break
 
-        # 혹시 API가 빈 페이지를 반환할 경우 무한루프 방지
+        # API가 빈 페이지를 반환할 경우
+        # 무한 루프 방지
         if not events:
+
             print(
-                "더 이상 데이터가 없어 수집을 종료합니다."
+                "더 이상 데이터가 없어 "
+                "수집을 종료합니다."
             )
+
             break
 
         page_number += 1
@@ -182,8 +224,28 @@ def get_all_events(page_size=10):
 
 if __name__ == "__main__":
 
-    # 평소 테스트할 때는 최신 데이터만 확인
-    events = get_latest_events()
+    print("=" * 50)
+    print("WAHIS 4대 질병 API 테스트")
+    print("=" * 50)
+
+    print("모니터링 대상:")
+
+    for disease_name, disease_id in DISEASES.items():
+
+        print(
+            f"- {disease_name}: "
+            f"WAHIS ID {disease_id}"
+        )
+
+    print()
+    print("=" * 50)
+    print()
+
+    # 테스트 시 최신 3페이지(최대 30건) 확인
+    events = get_latest_events(
+        page_count=3,
+        page_size=10
+    )
 
     print()
     print("=" * 50)
@@ -193,8 +255,8 @@ if __name__ == "__main__":
     for event in events:
 
         print(
-            f"report_id={event['reportId']} | "
-            f"country={event['country']} | "
-            f"disease={event['disease']} | "
-            f"submission={event['submissionDate']}"
+            f"report_id={event.get('reportId')} | "
+            f"country={event.get('country')} | "
+            f"disease={event.get('disease')} | "
+            f"submission={event.get('submissionDate')}"
         )

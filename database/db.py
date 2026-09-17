@@ -46,7 +46,10 @@ def convert_datetime(date_string):
 
 def is_report_exists(report_id):
     """
-    해당 report_id가 DB에 존재하는지 확인
+    단일 report_id가 DB에 존재하는지 확인
+
+    기존 코드와의 호환성을 위해 유지한다.
+    운영 모니터링에서는 get_existing_report_ids() 사용을 권장한다.
     """
 
     conn = None
@@ -75,6 +78,84 @@ def is_report_exists(report_id):
     except pymysql.MySQLError as e:
 
         print("리포트 조회 실패:", e)
+
+        raise
+
+    finally:
+
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
+
+
+def get_existing_report_ids(report_ids):
+    """
+    여러 report_id를 한 번의 DB 조회로 확인한다.
+
+    Parameters
+    ----------
+    report_ids : list
+        확인할 WAHIS report_id 목록
+
+    Returns
+    -------
+    set
+        DB에 이미 존재하는 report_id 집합
+
+    예:
+        입력:
+        [185963, 185940, 185955]
+
+        DB에 185940, 185955가 존재한다면:
+
+        반환:
+        {185940, 185955}
+    """
+
+    if not report_ids:
+        return set()
+
+    conn = None
+    cursor = None
+
+    try:
+
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        # report_id 개수만큼 %s 생성
+        placeholders = ", ".join(
+            ["%s"] * len(report_ids)
+        )
+
+        sql = f"""
+        SELECT report_id
+        FROM disease_reports
+        WHERE report_id IN ({placeholders})
+        """
+
+        cursor.execute(
+            sql,
+            tuple(report_ids)
+        )
+
+        results = cursor.fetchall()
+
+        existing_ids = {
+            row[0]
+            for row in results
+        }
+
+        return existing_ids
+
+    except pymysql.MySQLError as e:
+
+        print(
+            "리포트 일괄 조회 실패:",
+            e
+        )
 
         raise
 
@@ -144,7 +225,10 @@ def insert_disease_report(event):
         if conn:
             conn.rollback()
 
-        print("DB 저장 실패:", e)
+        print(
+            "DB 저장 실패:",
+            e
+        )
 
         raise
 
@@ -169,6 +253,9 @@ if __name__ == "__main__":
 
     except pymysql.MySQLError as e:
 
-        print("DB 연결 실패:", e)
+        print(
+            "DB 연결 실패:",
+            e
+        )
 
         raise
