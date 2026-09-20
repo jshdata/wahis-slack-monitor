@@ -11,6 +11,18 @@ load_dotenv()
 def get_connection():
     """
     Aiven MySQL 연결
+
+    connect_timeout:
+        DB 서버와 최초 연결을 맺는 최대 대기시간
+
+    read_timeout:
+        SQL 실행 후 DB 응답을 기다리는 최대 시간
+
+    write_timeout:
+        DB로 데이터를 전송할 때의 최대 대기시간
+
+    원격 Aiven DB에 대량 데이터를 저장할 수 있으므로
+    read/write timeout은 120초로 설정한다.
     """
 
     return pymysql.connect(
@@ -21,9 +33,10 @@ def get_connection():
         database=os.getenv("DB_NAME"),
 
         charset="utf8mb4",
+
         connect_timeout=10,
-        read_timeout=10,
-        write_timeout=10,
+        read_timeout=120,
+        write_timeout=120,
 
         ssl={
             "ca": os.getenv("DB_SSL_CA")
@@ -49,7 +62,8 @@ def is_report_exists(report_id):
     단일 report_id가 DB에 존재하는지 확인
 
     기존 코드와의 호환성을 위해 유지한다.
-    운영 모니터링에서는 get_existing_report_ids() 사용을 권장한다.
+    운영 모니터링에서는
+    get_existing_report_ids() 사용을 권장한다.
     """
 
     conn = None
@@ -77,17 +91,30 @@ def is_report_exists(report_id):
 
     except pymysql.MySQLError as e:
 
-        print("리포트 조회 실패:", e)
+        print(
+            "리포트 조회 실패:",
+            e
+        )
 
         raise
 
     finally:
 
         if cursor:
-            cursor.close()
+
+            try:
+                cursor.close()
+
+            except Exception:
+                pass
 
         if conn:
-            conn.close()
+
+            try:
+                conn.close()
+
+            except Exception:
+                pass
 
 
 def get_existing_report_ids(report_ids):
@@ -125,7 +152,6 @@ def get_existing_report_ids(report_ids):
         conn = get_connection()
         cursor = conn.cursor()
 
-        # report_id 개수만큼 %s 생성
         placeholders = ", ".join(
             ["%s"] * len(report_ids)
         )
@@ -162,10 +188,20 @@ def get_existing_report_ids(report_ids):
     finally:
 
         if cursor:
-            cursor.close()
+
+            try:
+                cursor.close()
+
+            except Exception:
+                pass
 
         if conn:
-            conn.close()
+
+            try:
+                conn.close()
+
+            except Exception:
+                pass
 
 
 def insert_disease_report(event):
@@ -223,7 +259,17 @@ def insert_disease_report(event):
     except pymysql.MySQLError as e:
 
         if conn:
-            conn.rollback()
+
+            try:
+                conn.rollback()
+
+            except Exception as rollback_error:
+
+                print(
+                    "rollback 생략 "
+                    "(DB 연결이 이미 종료되었을 수 있음):",
+                    repr(rollback_error)
+                )
 
         print(
             "DB 저장 실패:",
@@ -235,10 +281,20 @@ def insert_disease_report(event):
     finally:
 
         if cursor:
-            cursor.close()
+
+            try:
+                cursor.close()
+
+            except Exception:
+                pass
 
         if conn:
-            conn.close()
+
+            try:
+                conn.close()
+
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
@@ -247,7 +303,9 @@ if __name__ == "__main__":
 
         conn = get_connection()
 
-        print("DB 연결 성공")
+        print(
+            "DB 연결 성공"
+        )
 
         conn.close()
 
