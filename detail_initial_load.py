@@ -10,6 +10,12 @@ from wahis.detail_api import get_report_detail
 # 설정
 # =========================================================
 
+# HPAI Non-poultry 정확한 WAHIS disease 명칭
+HPAI_NON_POULTRY = (
+    "Influenza A viruses of high pathogenicity "
+    "(Inf. with) (non-poultry including wild birds) (2017-)"
+)
+
 # Report 한 건 처리 후 대기 시간
 REQUEST_DELAY = 1.0
 
@@ -21,25 +27,32 @@ MAX_RETRIES = 5
 # 1차 실패 → 5초
 # 2차 실패 → 10초
 # 3차 실패 → 15초
-# ...
+# 4차 실패 → 20초
 RETRY_DELAY = 5
 
-# 테스트 시 처리할 최대 Report 수
+# ---------------------------------------------------------
+# 처리할 최대 Report 수
+# ---------------------------------------------------------
 #
-# 오류 확인 중:
+# 최초 테스트:
 # TEST_LIMIT = 3
 #
 # 배치 적재:
-# TEST_LIMIT = 200
-# TEST_LIMIT = 500
+# TEST_LIMIT = 100
+TEST_LIMIT = 200
 #
 # 전체 적재:
 # TEST_LIMIT = None
-TEST_LIMIT = 100
+#
 
+
+# =========================================================
+# 미처리 Report ID 조회
+# =========================================================
 
 def get_unprocessed_report_ids(limit=None):
     """
+    HPAI Non-poultry 중
     아직 상세정보가 적재되지 않은 Report ID를 조회한다.
 
     submission_date 기준으로
@@ -53,18 +66,30 @@ def get_unprocessed_report_ids(limit=None):
         conn = get_connection()
         cursor = conn.cursor()
 
+        # -------------------------------------------------
+        # 전체 조회
+        # -------------------------------------------------
+
         if limit is None:
 
             sql = """
                 SELECT report_id
                 FROM disease_reports
                 WHERE detail_loaded = 0
+                  AND disease = %s
                 ORDER BY
                     submission_date ASC,
                     report_id ASC
             """
 
-            cursor.execute(sql)
+            cursor.execute(
+                sql,
+                (HPAI_NON_POULTRY,)
+            )
+
+        # -------------------------------------------------
+        # 제한 조회
+        # -------------------------------------------------
 
         else:
 
@@ -72,6 +97,7 @@ def get_unprocessed_report_ids(limit=None):
                 SELECT report_id
                 FROM disease_reports
                 WHERE detail_loaded = 0
+                  AND disease = %s
                 ORDER BY
                     submission_date ASC,
                     report_id ASC
@@ -80,7 +106,10 @@ def get_unprocessed_report_ids(limit=None):
 
             cursor.execute(
                 sql,
-                (limit,)
+                (
+                    HPAI_NON_POULTRY,
+                    limit,
+                )
             )
 
         results = cursor.fetchall()
@@ -99,8 +128,13 @@ def get_unprocessed_report_ids(limit=None):
             conn.close()
 
 
+# =========================================================
+# 남은 미처리 Report 수
+# =========================================================
+
 def get_remaining_count():
     """
+    HPAI Non-poultry 중
     detail_loaded = 0인 Report 수를 반환한다.
     """
 
@@ -115,9 +149,13 @@ def get_remaining_count():
             SELECT COUNT(*)
             FROM disease_reports
             WHERE detail_loaded = 0
+              AND disease = %s
         """
 
-        cursor.execute(sql)
+        cursor.execute(
+            sql,
+            (HPAI_NON_POULTRY,)
+        )
 
         result = cursor.fetchone()
 
@@ -132,22 +170,28 @@ def get_remaining_count():
             conn.close()
 
 
+# =========================================================
+# Report 한 건 상세 적재
+# =========================================================
+
 def load_report_detail(report_id):
     """
     Report 하나의 상세정보를 조회하고 저장한다.
 
     실패하면 MAX_RETRIES만큼 재시도한다.
 
-    오류 발생 시:
-    - 예외 종류
-    - 예외 내용
-    - 전체 traceback
-
-    을 출력한다.
+    재시도:
+        1차 실패 → 5초
+        2차 실패 → 10초
+        3차 실패 → 15초
+        4차 실패 → 20초
 
     모든 저장이 성공하면
     save_report_detail() 내부에서
     detail_loaded = 1로 변경된다.
+
+    최종 실패한 Report는
+    detail_loaded = 0 상태로 남는다.
     """
 
     for attempt in range(
@@ -162,9 +206,17 @@ def load_report_detail(report_id):
                 f"report_id={report_id}"
             )
 
+            # ---------------------------------------------
+            # WAHIS Detail API
+            # ---------------------------------------------
+
             detail = get_report_detail(
                 report_id
             )
+
+            # ---------------------------------------------
+            # DB 저장
+            # ---------------------------------------------
 
             save_report_detail(
                 detail
@@ -253,13 +305,17 @@ def load_report_detail(report_id):
     return False
 
 
+# =========================================================
+# Main
+# =========================================================
+
 def main():
 
     start_time = time.time()
 
     print("=" * 60)
     print(
-        "WAHIS 상세정보 초기 적재 시작"
+        "HPAI NON-POULTRY 상세정보 적재 시작"
     )
     print("=" * 60)
     print()
@@ -273,12 +329,12 @@ def main():
     )
 
     print(
-        f"전체 미처리 Report: "
-        f"{total_remaining}건"
+        "HPAI NON-POULTRY "
+        f"미처리 Report: {total_remaining}건"
     )
 
     # -----------------------------------------------------
-    # 테스트 / 배치 모드 표시
+    # 테스트 / 배치 / 전체 모드
     # -----------------------------------------------------
 
     if TEST_LIMIT is None:
@@ -324,7 +380,8 @@ def main():
     if target_count == 0:
 
         print(
-            "처리할 Report가 없습니다."
+            "처리할 HPAI NON-POULTRY "
+            "Report가 없습니다."
         )
 
         print(
@@ -374,7 +431,7 @@ def main():
             )
 
         # 마지막 Report가 아니면
-        # 다음 요청 전 잠시 대기
+        # 다음 API 요청 전 잠시 대기
         if index < target_count:
 
             time.sleep(
@@ -398,7 +455,7 @@ def main():
 
     print("=" * 60)
     print(
-        "WAHIS 상세정보 초기 적재 완료"
+        "HPAI NON-POULTRY 상세정보 적재 완료"
     )
     print("=" * 60)
 
@@ -418,6 +475,7 @@ def main():
     )
 
     print(
+        "HPAI NON-POULTRY "
         f"남은 미처리 Report: "
         f"{remaining_count}건"
     )

@@ -17,9 +17,9 @@ DISEASES = {
     "HPAI": 668,
     "ASF": 55,
     "LSD": 769,
-    "FMD": 437
+    "FMD": 437,
+    "HPAI_NON_POULTRY": 671
 }
-
 
 def get_events(page_number=0, page_size=10):
     """
