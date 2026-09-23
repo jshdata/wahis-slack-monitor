@@ -1,3 +1,5 @@
+# slack/notifier.py
+
 import os
 import requests
 from dotenv import load_dotenv
@@ -6,6 +8,10 @@ from datetime import datetime
 
 load_dotenv()
 
+
+# =========================================================
+# Slack 메시지 전송
+# =========================================================
 
 def send_slack_message(blocks, text="WAHIS 신규 리포트"):
     """
@@ -35,9 +41,13 @@ def send_slack_message(blocks, text="WAHIS 신규 리포트"):
     print("Slack 알림 전송 성공")
 
 
+# =========================================================
+# 날짜 포맷
+# =========================================================
+
 def format_submission_date(date_string):
     """
-    WAHIS 날짜를 보기 좋은 형태로 변환한다.
+    WAHIS submissionDate를 보기 좋은 형태로 변환한다.
 
     예:
     2026-09-07T15:38:46.521+00:00
@@ -55,13 +65,56 @@ def format_submission_date(date_string):
             "%Y-%m-%d %H:%M:%S UTC"
         )
 
-    except ValueError:
-        return date_string
+    except (ValueError, TypeError):
+        return str(date_string)
 
+
+# =========================================================
+# WAHIS Reason 한글 표시
+# =========================================================
+
+def get_reason_label(reason):
+    """
+    WAHIS에서 제공하는 Reason을
+    Slack에서 읽기 쉽게 표시한다.
+
+    판정을 새로 수행하는 것이 아니라
+    WAHIS가 제공한 값을 번역해서 보여준다.
+    """
+
+    if not reason:
+        return "-"
+
+    reason_lower = reason.lower().strip()
+
+    if "first occurrence in the country" in reason_lower:
+        return "🆕 국가/지역 내 첫 발생"
+
+    if "first occurrence in a zone" in reason_lower:
+        return "🆕 특정 구역 또는 구획 내 첫 발생"
+
+    if "recurrence of an eradicated disease" in reason_lower:
+        return "⚠️ 근절 후 재발"
+
+    if "new strain in the country" in reason_lower:
+        return "🧬 국가/지역 내 새로운 유형 발생"
+
+    return reason
+
+
+# =========================================================
+# 신규 WAHIS Report 알림
+# =========================================================
 
 def send_new_report_alert(event):
     """
-    신규 WAHIS 리포트를 Slack으로 알린다.
+    신규 WAHIS Report를 Slack으로 알린다.
+
+    모든 신규 Report에 대해 알림을 전송한다.
+
+    첫 발생 / 재발 등의 정보는
+    자체적으로 판정하지 않고
+    WAHIS의 reason 값을 그대로 활용한다.
     """
 
     report_id = event["reportId"]
@@ -75,17 +128,25 @@ def send_new_report_alert(event):
 
     reason = event.get("reason") or "-"
 
+    reason_label = get_reason_label(reason)
+
     event_status = event.get("eventStatus") or "-"
     report_type = event.get("reportType") or "-"
-    report_status = event.get("reportStatus") or "-"
 
+    # -----------------------------------------------------
     # WAHIS 상세 페이지
+    # -----------------------------------------------------
+
     wahis_url = (
         "https://wahis.woah.org/"
         f"#/in-review/{event_id}"
         f"?reportId={report_id}"
         "&fromPage=event-dashboard-url"
     )
+
+    # -----------------------------------------------------
+    # Slack Block Kit
+    # -----------------------------------------------------
 
     blocks = [
 
@@ -98,7 +159,6 @@ def send_new_report_alert(event):
             }
         },
 
-        # 구분선
         {
             "type": "divider"
         },
@@ -118,6 +178,29 @@ def send_new_report_alert(event):
             ]
         },
 
+        # WAHIS 발생 사유
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": (
+                    "*⚠️ 발생 사유*\n"
+                    f"{reason_label}"
+                )
+            }
+        },
+
+        # WAHIS 원문
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": f"WAHIS Reason: {reason}"
+                }
+            ]
+        },
+
         # Report / Event
         {
             "type": "section",
@@ -133,37 +216,40 @@ def send_new_report_alert(event):
             ]
         },
 
-        # 제출일 / 사유
+        # 제출일
         {
             "type": "section",
             "fields": [
                 {
                     "type": "mrkdwn",
-                    "text": f"*🕐 제출일*\n{submission_date}"
+                    "text": (
+                        "*🕐 제출일*\n"
+                        f"{submission_date}"
+                    )
                 },
                 {
                     "type": "mrkdwn",
-                    "text": f"*⚠️ 사유*\n{reason}"
+                    "text": (
+                        "*📋 Report Type*\n"
+                        f"{report_type}"
+                    )
                 }
             ]
         },
 
-        # 상태 정보
+        # Event 상태
         {
             "type": "section",
-            "fields": [
-                {
-                    "type": "mrkdwn",
-                    "text": f"*Event Status*\n{event_status}"
-                },
-                {
-                    "type": "mrkdwn",
-                    "text": f"*Report Type*\n{report_type}"
-                }
-            ]
+            "text": {
+                "type": "mrkdwn",
+                "text": (
+                    "*Event Status*\n"
+                    f"{event_status}"
+                )
+            }
         },
 
-        # 버튼
+        # WAHIS 상세보기
         {
             "type": "actions",
             "elements": [
@@ -183,5 +269,8 @@ def send_new_report_alert(event):
 
     send_slack_message(
         blocks=blocks,
-        text=f"🚨 WAHIS 신규 리포트 - {country} / {disease}"
+        text=(
+            f"🚨 WAHIS 신규 리포트 - "
+            f"{country} / {disease}"
+        )
     )
