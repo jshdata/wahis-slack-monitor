@@ -1,4 +1,5 @@
 import os
+import tempfile
 from datetime import datetime
 
 import pymysql
@@ -7,6 +8,98 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
+# =========================================================
+# SSL 인증서 처리
+# =========================================================
+
+_ssl_ca_temp_path = None
+
+
+def get_ssl_ca_path():
+    """
+    MySQL SSL CA 인증서 경로 반환
+
+    로컬 환경
+    ----------
+    .env의 DB_SSL_CA에 ca.pem 파일 경로를 저장한다.
+
+    예:
+    DB_SSL_CA=C:/Users/.../wahis-slack-monitor/ca.pem
+
+
+    Railway 환경
+    --------------
+    DB_SSL_CA_CONTENT에 ca.pem의 전체 내용을 저장한다.
+
+    예:
+    -----BEGIN CERTIFICATE-----
+    ...
+    -----END CERTIFICATE-----
+
+
+    우선순위
+    --------
+    1. DB_SSL_CA_CONTENT가 있으면 임시 PEM 파일 생성
+    2. 없으면 기존 DB_SSL_CA 파일 경로 사용
+    """
+
+    global _ssl_ca_temp_path
+
+    # -----------------------------------------------------
+    # Railway 등 클라우드 환경
+    # -----------------------------------------------------
+
+    ca_content = os.getenv("DB_SSL_CA_CONTENT")
+
+    if ca_content:
+
+        # 이미 임시 인증서 파일을 생성했다면 재사용
+        if (
+            _ssl_ca_temp_path
+            and os.path.exists(_ssl_ca_temp_path)
+        ):
+            return _ssl_ca_temp_path
+
+        # 환경변수 입력 과정에서 \n 문자열로 들어온 경우 대응
+        ca_content = ca_content.replace("\\n", "\n")
+
+        ca_file = tempfile.NamedTemporaryFile(
+            mode="w",
+            suffix=".pem",
+            delete=False,
+            encoding="utf-8"
+        )
+
+        ca_file.write(ca_content)
+        ca_file.close()
+
+        _ssl_ca_temp_path = ca_file.name
+
+        return _ssl_ca_temp_path
+
+    # -----------------------------------------------------
+    # 로컬 환경
+    # -----------------------------------------------------
+
+    ca_path = os.getenv("DB_SSL_CA")
+
+    if not ca_path:
+        raise ValueError(
+            "DB_SSL_CA 또는 DB_SSL_CA_CONTENT가 설정되어 있지 않습니다."
+        )
+
+    if not os.path.exists(ca_path):
+        raise FileNotFoundError(
+            f"SSL CA 인증서 파일을 찾을 수 없습니다: {ca_path}"
+        )
+
+    return ca_path
+
+
+# =========================================================
+# DB 연결
+# =========================================================
 
 def get_connection():
     """
@@ -25,6 +118,8 @@ def get_connection():
     read/write timeout은 120초로 설정한다.
     """
 
+    ssl_ca_path = get_ssl_ca_path()
+
     return pymysql.connect(
         host=os.getenv("DB_HOST"),
         port=int(os.getenv("DB_PORT")),
@@ -39,10 +134,14 @@ def get_connection():
         write_timeout=120,
 
         ssl={
-            "ca": os.getenv("DB_SSL_CA")
+            "ca": ssl_ca_path
         }
     )
 
+
+# =========================================================
+# 날짜 변환
+# =========================================================
 
 def convert_datetime(date_string):
     """
@@ -56,6 +155,10 @@ def convert_datetime(date_string):
         date_string
     ).replace(tzinfo=None)
 
+
+# =========================================================
+# 단일 report_id 존재 여부 확인
+# =========================================================
 
 def is_report_exists(report_id):
     """
@@ -116,6 +219,10 @@ def is_report_exists(report_id):
             except Exception:
                 pass
 
+
+# =========================================================
+# 여러 report_id 존재 여부 확인
+# =========================================================
 
 def get_existing_report_ids(report_ids):
     """
@@ -203,6 +310,10 @@ def get_existing_report_ids(report_ids):
             except Exception:
                 pass
 
+
+# =========================================================
+# WAHIS 이벤트 저장
+# =========================================================
 
 def insert_disease_report(event):
     """
@@ -297,6 +408,10 @@ def insert_disease_report(event):
                 pass
 
 
+# =========================================================
+# DB 연결 테스트
+# =========================================================
+
 if __name__ == "__main__":
 
     try:
@@ -309,7 +424,7 @@ if __name__ == "__main__":
 
         conn.close()
 
-    except pymysql.MySQLError as e:
+    except Exception as e:
 
         print(
             "DB 연결 실패:",
