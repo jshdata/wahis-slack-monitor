@@ -10,6 +10,7 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 from database.query_db import (
     search_reports,
     get_countries,
+    db_utc_to_kst,
 )
 
 # /wahis-stats 통계 기능
@@ -151,59 +152,6 @@ DISEASE_OPTIONS = [
         "value": "LSD",
     },
 ]
-
-
-# =========================================================
-# 월 옵션
-# =========================================================
-MONTH_OPTIONS = [
-    {
-        "text": {
-            "type": "plain_text",
-            "text": "전체",
-        },
-        "value": "all",
-    }
-]
-
-for month in range(1, 13):
-    MONTH_OPTIONS.append(
-        {
-            "text": {
-                "type": "plain_text",
-                "text": f"{month}월",
-            },
-            "value": str(month),
-        }
-    )
-
-
-# =========================================================
-# 연도 옵션
-# =========================================================
-CURRENT_YEAR = datetime.now().year
-
-YEAR_OPTIONS = [
-    {
-        "text": {
-            "type": "plain_text",
-            "text": "전체",
-        },
-        "value": "all",
-    }
-]
-
-for year in range(CURRENT_YEAR, 2007, -1):
-    YEAR_OPTIONS.append(
-        {
-            "text": {
-                "type": "plain_text",
-                "text": str(year),
-            },
-            "value": str(year),
-        }
-    )
-
 
 # =========================================================
 # 국가 옵션 생성
@@ -465,50 +413,104 @@ def build_search_modal(
                     "options": DISEASE_OPTIONS,
                 },
             },
+                # =====================================================
+                # 시작 날짜
+                # =====================================================
+                {
+                    "type": "input",
+                    "block_id": "start_date_block",
 
-            # ---------------------------------------------
-            # 연도
-            # ---------------------------------------------
-            {
-                "type": "input",
-                "block_id": "year_block",
+                    "label": {
+                        "type": "plain_text",
+                        "text": "📅 시작 날짜",
+                    },
 
-                "label": {
-                    "type": "plain_text",
-                    "text": "📅 연도",
+                    "element": {
+                        "type": "datepicker",
+                        "action_id": "start_date_select",
+
+                        "placeholder": {
+                            "type": "plain_text",
+                            "text": "시작 날짜 선택",
+                        },
+                    },
                 },
 
-                "element": {
-                    "type": "static_select",
-                    "action_id": "year_select",
+                # =====================================================
+                # 시작 시간
+                # =====================================================
+                {
+                    "type": "input",
+                    "block_id": "start_time_block",
 
-                    "initial_option": YEAR_OPTIONS[0],
+                    "label": {
+                        "type": "plain_text",
+                        "text": "🕘 시작 시간 (KST)",
+                    },
 
-                    "options": YEAR_OPTIONS,
+                    "element": {
+                        "type": "timepicker",
+                        "action_id": "start_time_select",
+
+                        # 기본값: 오전 9시
+                        "initial_time": "09:00",
+
+                        "placeholder": {
+                            "type": "plain_text",
+                            "text": "시작 시간 선택",
+                        },
+                    },
                 },
-            },
 
-            # ---------------------------------------------
-            # 월
-            # ---------------------------------------------
-            {
-                "type": "input",
-                "block_id": "month_block",
+                # =====================================================
+                # 종료 날짜
+                # =====================================================
+                {
+                    "type": "input",
+                    "block_id": "end_date_block",
 
-                "label": {
-                    "type": "plain_text",
-                    "text": "🗓️ 월",
+                    "label": {
+                        "type": "plain_text",
+                        "text": "📅 종료 날짜",
+                    },
+
+                    "element": {
+                        "type": "datepicker",
+                        "action_id": "end_date_select",
+
+                        "placeholder": {
+                            "type": "plain_text",
+                            "text": "종료 날짜 선택",
+                        },
+                    },
                 },
 
-                "element": {
-                    "type": "static_select",
-                    "action_id": "month_select",
+                # =====================================================
+                # 종료 시간
+                # =====================================================
+                {
+                    "type": "input",
+                    "block_id": "end_time_block",
 
-                    "initial_option": MONTH_OPTIONS[0],
+                    "label": {
+                        "type": "plain_text",
+                        "text": "🕘 종료 시간 (KST)",
+                    },
 
-                    "options": MONTH_OPTIONS,
+                    "element": {
+                        "type": "timepicker",
+                        "action_id": "end_time_select",
+
+                        # 기본값: 오전 9시
+                        "initial_time": "09:00",
+
+                        "placeholder": {
+                            "type": "plain_text",
+                            "text": "종료 시간 선택",
+                        },
+                    },
                 },
-            },
+
         ],
     }
 
@@ -626,20 +628,57 @@ def handle_wahis_search(
         ["selected_option"]
         ["value"]
     )
-
-    year = (
-        values["year_block"]
-        ["year_select"]
-        ["selected_option"]
-        ["value"]
+    # ---------------------------------------------
+    # 조회 시작/종료 날짜·시간
+    # ---------------------------------------------
+    start_date = (
+        values["start_date_block"]
+        ["start_date_select"]
+        ["selected_date"]
     )
 
-    month = (
-        values["month_block"]
-        ["month_select"]
-        ["selected_option"]
-        ["value"]
+    start_time = (
+        values["start_time_block"]
+        ["start_time_select"]
+        ["selected_time"]
     )
+
+    end_date = (
+        values["end_date_block"]
+        ["end_date_select"]
+        ["selected_date"]
+    )
+
+    end_time = (
+        values["end_time_block"]
+        ["end_time_select"]
+        ["selected_time"]
+    )
+    # KST 기준 조회시간 생성
+    start_datetime = f"{start_date} {start_time}:00"
+    end_datetime = f"{end_date} {end_time}:00"
+
+    # =====================================================
+    # 조회 기간 검증
+    # =====================================================
+    start_dt = datetime.fromisoformat(
+        f"{start_date}T{start_time}"
+    )
+
+    end_dt = datetime.fromisoformat(
+        f"{end_date}T{end_time}"
+    )
+
+    if start_dt >= end_dt:
+        client.chat_postMessage(
+            channel=body["user"]["id"],
+            text=(
+                "⚠️ 조회 기간을 확인해주세요.\n\n"
+                "종료 날짜·시간은 시작 날짜·시간보다 "
+                "뒤여야 합니다."
+            ),
+        )
+        return
 
     # =====================================================
     # Slack 값 → DB 값 변환
@@ -662,18 +701,6 @@ def handle_wahis_search(
         else disease
     )
 
-    db_year = (
-        None
-        if year == "all"
-        else int(year)
-    )
-
-    db_month = (
-        None
-        if month == "all"
-        else int(month)
-    )
-
     if animal == "wild":
         db_wild = True
 
@@ -687,14 +714,13 @@ def handle_wahis_search(
     # 실제 DB 조회
     # =====================================================
     try:
-
         results = search_reports(
             region=db_region,
             country=db_country,
             wild=db_wild,
             disease=db_disease,
-            year=db_year,
-            month=db_month,
+            start_datetime=start_datetime,
+            end_datetime=end_datetime,
             limit=20,
         )
 
@@ -751,25 +777,13 @@ def handle_wahis_search(
         else disease
     )
 
-    year_label = (
-        "전체 연도"
-        if year == "all"
-        else f"{year}년"
-    )
-
-    month_label = (
-        "전체 월"
-        if month == "all"
-        else f"{month}월"
-    )
-
     condition_text = (
         f"{region_label} · "
         f"{country_label} · "
         f"{animal_label} · "
-        f"{disease_label} · "
-        f"{year_label} · "
-        f"{month_label}"
+        f"{disease_label}\n"
+        f"📅 {start_date} {start_time} ~ "
+        f"{end_date} {end_time} KST"
     )
 
     # =====================================================
@@ -821,13 +835,17 @@ def handle_wahis_search(
                 full_disease
             )
         )
-
         if submission_date:
 
+            submission_date_kst = db_utc_to_kst(
+                submission_date
+            )
+
             date_text = (
-                submission_date.strftime(
+                submission_date_kst.strftime(
                     "%Y-%m-%d %H:%M:%S"
                 )
+                + " KST"
             )
 
         else:
