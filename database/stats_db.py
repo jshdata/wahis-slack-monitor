@@ -477,6 +477,157 @@ def get_outbreak_duration_stats(
         conn.close()
 
 # =========================================================
+# 발생 Event 목록 조회 (WAHIS 링크용)
+# =========================================================
+
+def get_outbreak_events(
+    disease_code,
+    start_date,
+    end_date,
+    region=None,
+    country=None,
+    limit=10,
+    offset=0,
+):
+    """
+    조회 기간(outbreak.start_date 기준)에 발생이 있었던
+    Event 목록을 최신 발생 순으로 조회한다.
+
+    반환:
+        event_id
+        country
+        subtype
+        first_start       (조회 기간 내 가장 이른 발생일)
+        outbreak_count    (조회 기간 내 outbreak 수)
+        latest_report_id  (WAHIS 링크용 최신 Report)
+        total_count       (전체 Event 수, 페이지 계산용)
+    """
+
+    disease_name = DISEASE_MAP.get(
+        disease_code
+    )
+
+    if disease_name is None:
+        raise ValueError(
+            "지원하지 않는 질병 코드입니다: "
+            f"{disease_code}"
+        )
+
+    conditions = [
+        "dr.disease = %s"
+    ]
+
+    params = [
+        disease_name
+    ]
+
+    if region:
+
+        conditions.append(
+            "cr.region = %s"
+        )
+
+        params.append(
+            region
+        )
+
+    if country:
+
+        conditions.append(
+            "dr.country = %s"
+        )
+
+        params.append(
+            country
+        )
+
+    where_clause = " AND ".join(
+        conditions
+    )
+
+    sql = f"""
+        WITH target_events AS (
+            SELECT
+                dr.event_id,
+                MAX(dr.country) AS country,
+                MAX(cr.region) AS region,
+                MAX(dr.subtype) AS subtype
+
+            FROM disease_reports dr
+
+            LEFT JOIN country_regions cr
+                ON dr.country = cr.country
+
+            WHERE {where_clause}
+
+            GROUP BY dr.event_id
+        )
+
+        SELECT
+            te.event_id,
+            te.country,
+            te.subtype,
+            MIN(o.start_date) AS first_start,
+            COUNT(DISTINCT o.outbreak_id)
+                AS outbreak_count,
+
+            (
+                SELECT dr2.report_id
+                FROM disease_reports dr2
+                WHERE dr2.event_id = te.event_id
+                ORDER BY
+                    dr2.submission_date DESC,
+                    dr2.report_id DESC
+                LIMIT 1
+            ) AS latest_report_id,
+
+            COUNT(*) OVER () AS total_count
+
+        FROM outbreaks o
+
+        JOIN target_events te
+            ON o.event_id = te.event_id
+
+        WHERE o.start_date >= %s
+          AND o.start_date
+              < DATE_ADD(%s, INTERVAL 1 DAY)
+
+        GROUP BY
+            te.event_id,
+            te.country,
+            te.subtype
+
+        ORDER BY
+            first_start DESC,
+            te.event_id DESC
+
+        LIMIT %s OFFSET %s
+    """
+
+    params.extend([
+        start_date,
+        end_date,
+        int(limit),
+        int(offset),
+    ])
+
+    conn = get_connection()
+
+    try:
+        with conn.cursor() as cursor:
+
+            cursor.execute(
+                sql,
+                params
+            )
+
+            return cursor.fetchall()
+
+    finally:
+
+        conn.close()
+
+# =========================================================
 # Matrix 형태로 변환
 # =========================================================
 

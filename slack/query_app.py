@@ -1,4 +1,5 @@
 import os
+import json
 from datetime import datetime
 
 from dotenv import load_dotenv
@@ -18,6 +19,7 @@ from database.stats_db import (
     get_outbreak_stats,
     get_hpai_outbreak_stats,
     get_outbreak_duration_stats,
+    get_outbreak_events,
     get_gap_days,
     build_matrix,
 )
@@ -2113,6 +2115,443 @@ def build_duration_messages(
 
     return messages
 
+# =========================================================
+# Event 목록 (WAHIS 링크) 버튼 / 모달
+# =========================================================
+
+# 모달 한 페이지에 보여줄 Event 수
+EVENT_PAGE_SIZE = 10
+
+EVENT_DISEASE_LABELS = {
+    "HPAI": "HPAI - 가금 (Poultry)",
+    "HPAI_NON_POULTRY": (
+        "HPAI - 가금 외 "
+        "(Non-poultry including wild birds)"
+    ),
+}
+
+
+def build_wahis_url(event_id, report_id):
+
+    return (
+        "https://wahis.woah.org/"
+        f"#/in-review/{event_id}"
+        f"?reportId={report_id}"
+        "&fromPage=event-dashboard-url"
+    )
+
+
+def post_event_button(
+    client,
+    channel,
+    code,
+    start_date,
+    end_date,
+    db_region,
+    db_country,
+):
+    """
+    결과 표 아래에 'Event 목록 보기' 버튼 메시지를 보낸다.
+
+    조회 조건은 버튼의 value에 담아 두고,
+    버튼을 누르면 이 조건으로 Event 목록을 조회한다.
+    """
+
+    label = EVENT_DISEASE_LABELS.get(
+        code,
+        code,
+    )
+
+    value = json.dumps(
+        {
+            "c": code,
+            "s": start_date,
+            "e": end_date,
+            "r": db_region or "",
+            "k": db_country or "",
+        },
+        ensure_ascii=False,
+    )
+
+    client.chat_postMessage(
+        channel=channel,
+        text=f"발생 Event 목록 - {label}",
+        blocks=[
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        f"🔗 *{label}*\n"
+                        "발생 Event의 WAHIS 링크를 "
+                        "확인할 수 있습니다."
+                    ),
+                },
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "action_id": "open_event_list",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Event 목록 보기",
+                        },
+                        "value": value,
+                    }
+                ],
+            },
+        ],
+    )
+
+
+def build_event_list_modal(params, page):
+    """
+    Event 목록 모달을 만든다.
+
+    params: 버튼 value에 담긴 조회 조건
+    page  : 0부터 시작하는 페이지 번호
+    """
+
+    rows = get_outbreak_events(
+        disease_code=params["c"],
+        start_date=params["s"],
+        end_date=params["e"],
+        region=params["r"] or None,
+        country=params["k"] or None,
+        limit=EVENT_PAGE_SIZE,
+        offset=page * EVENT_PAGE_SIZE,
+    )
+
+    total = (
+        int(rows[0][6])
+        if rows
+        else 0
+    )
+
+    total_pages = max(
+        1,
+        (total + EVENT_PAGE_SIZE - 1)
+        // EVENT_PAGE_SIZE,
+    )
+
+    label = EVENT_DISEASE_LABELS.get(
+        params["c"],
+        params["c"],
+    )
+
+    country_text = (
+        params["k"]
+        if params["k"]
+        else "전체 국가"
+    )
+
+    blocks = [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": (
+                    f"*{label}*\n"
+                    f"🏳️ {country_text}\n"
+                    f"📅 {params['s']} ~ {params['e']}\n"
+                    f"Event *{total}개* "
+                    f"({page + 1}/{total_pages} 페이지)"
+                ),
+            },
+        },
+        {
+            "type": "divider",
+        },
+    ]
+
+    if not rows:
+
+        blocks.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "표시할 Event가 없습니다.",
+                },
+            }
+        )
+
+    for row in rows:
+
+        (
+            event_id,
+            country,
+            subtype,
+            first_start,
+            outbreak_count,
+            report_id,
+            _total,
+        ) = row
+
+        date_text = (
+            first_start.strftime("%Y-%m-%d")
+            if first_start
+            else "-"
+        )
+
+        subtype_text = (
+            f" · {subtype}"
+            if subtype
+            else ""
+        )
+
+        url = build_wahis_url(
+            event_id,
+            report_id,
+        )
+
+        blocks.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        f"🌍 *{country}*{subtype_text}\n"
+                        f"🕒 {date_text} 시작 · "
+                        f"outbreak {int(outbreak_count)}건\n"
+                        f"🔎 Event `{event_id}` · "
+                        f"<{url}|WAHIS에서 보기>"
+                    ),
+                },
+            }
+        )
+
+        blocks.append(
+            {
+                "type": "divider",
+            }
+        )
+
+    # -------------------------------------------------
+    # 이전 / 다음 버튼
+    # -------------------------------------------------
+
+    elements = []
+
+    if page > 0:
+
+        elements.append(
+            {
+                "type": "button",
+                "action_id": "event_list_prev",
+                "text": {
+                    "type": "plain_text",
+                    "text": "◀ 이전",
+                },
+            }
+        )
+
+    if page + 1 < total_pages:
+
+        elements.append(
+            {
+                "type": "button",
+                "action_id": "event_list_next",
+                "text": {
+                    "type": "plain_text",
+                    "text": "다음 ▶",
+                },
+            }
+        )
+
+    if elements:
+
+        blocks.append(
+            {
+                "type": "actions",
+                "elements": elements,
+            }
+        )
+
+    return {
+        "type": "modal",
+
+        "callback_id": "event_list_modal",
+
+        "title": {
+            "type": "plain_text",
+            "text": "발생 Event 목록",
+        },
+
+        "close": {
+            "type": "plain_text",
+            "text": "닫기",
+        },
+
+        # 이전 / 다음 버튼이 조회 조건을 알 수 있도록 보관
+        "private_metadata": json.dumps(
+            {**params, "page": page},
+            ensure_ascii=False,
+        ),
+
+        "blocks": blocks,
+    }
+
+
+def build_message_modal(text):
+    """
+    '불러오는 중' / 오류 안내용 간단한 모달
+    """
+
+    return {
+        "type": "modal",
+
+        "title": {
+            "type": "plain_text",
+            "text": "발생 Event 목록",
+        },
+
+        "close": {
+            "type": "plain_text",
+            "text": "닫기",
+        },
+
+        "blocks": [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": text,
+                },
+            }
+        ],
+    }
+
+
+@app.action("open_event_list")
+def handle_open_event_list(
+    ack,
+    body,
+    client,
+):
+
+    ack()
+
+    params = json.loads(
+        body["actions"][0]["value"]
+    )
+
+    # trigger_id는 3초 안에 써야 하므로
+    # 먼저 '불러오는 중' 모달을 열고
+    # DB 조회 후 내용을 교체한다.
+    opened = client.views_open(
+        trigger_id=body["trigger_id"],
+        view=build_message_modal(
+            "⏳ Event 목록을 불러오는 중입니다..."
+        ),
+    )
+
+    view_id = opened["view"]["id"]
+
+    try:
+
+        view = build_event_list_modal(
+            params,
+            0,
+        )
+
+    except Exception as e:
+
+        print(
+            "WAHIS Event 목록 조회 오류: "
+            f"{type(e).__name__}: {e}"
+        )
+
+        view = build_message_modal(
+            "❌ Event 목록 조회 중 오류가 "
+            "발생했습니다."
+        )
+
+    client.views_update(
+        view_id=view_id,
+        view=view,
+    )
+
+
+def change_event_page(
+    body,
+    client,
+    delta,
+):
+
+    meta = json.loads(
+        body["view"]["private_metadata"]
+    )
+
+    page = max(
+        0,
+        int(meta.get("page", 0)) + delta,
+    )
+
+    params = {
+        key: value
+        for key, value in meta.items()
+        if key != "page"
+    }
+
+    try:
+
+        view = build_event_list_modal(
+            params,
+            page,
+        )
+
+    except Exception as e:
+
+        print(
+            "WAHIS Event 목록 페이지 오류: "
+            f"{type(e).__name__}: {e}"
+        )
+
+        view = build_message_modal(
+            "❌ Event 목록 조회 중 오류가 "
+            "발생했습니다."
+        )
+
+    client.views_update(
+        view_id=body["view"]["id"],
+        hash=body["view"]["hash"],
+        view=view,
+    )
+
+
+@app.action("event_list_prev")
+def handle_event_list_prev(
+    ack,
+    body,
+    client,
+):
+
+    ack()
+
+    change_event_page(
+        body,
+        client,
+        -1,
+    )
+
+
+@app.action("event_list_next")
+def handle_event_list_next(
+    ack,
+    body,
+    client,
+):
+
+    ack()
+
+    change_event_page(
+        body,
+        client,
+        1,
+    )
 
 # =========================================================
 # /wahis-stats 조회
@@ -2287,6 +2726,16 @@ def handle_wahis_stats_search(
                         text=message,
                     )
 
+                post_event_button(
+                    client=client,
+                    channel=body["user"]["id"],
+                    code=code,
+                    start_date=start_date,
+                    end_date=end_date,
+                    db_region=db_region,
+                    db_country=db_country,
+                )
+
         except Exception as e:
 
             print(
@@ -2432,6 +2881,16 @@ def handle_wahis_stats_search(
                 text=poultry_message,
             )
 
+            post_event_button(
+                client=client,
+                channel=body["user"]["id"],
+                code="HPAI",
+                start_date=start_date,
+                end_date=end_date,
+                db_region=db_region,
+                db_country=db_country,
+            )
+
             # ---------------------------------------------
             # 가금 외
             # ---------------------------------------------
@@ -2452,6 +2911,16 @@ def handle_wahis_stats_search(
                 client=client,
                 channel=body["user"]["id"],
                 text=non_poultry_message,
+            )
+
+            post_event_button(
+                client=client,
+                channel=body["user"]["id"],
+                code="HPAI_NON_POULTRY",
+                start_date=start_date,
+                end_date=end_date,
+                db_region=db_region,
+                db_country=db_country,
             )
 
         return
@@ -2534,6 +3003,16 @@ def handle_wahis_stats_search(
             client=client,
             channel=body["user"]["id"],
             text=message,
+        )
+
+        post_event_button(
+            client=client,
+            channel=body["user"]["id"],
+            code=disease,
+            start_date=start_date,
+            end_date=end_date,
+            db_region=db_region,
+            db_country=db_country,
         )
 
 # =========================================================
