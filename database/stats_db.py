@@ -22,6 +22,38 @@ DISEASE_MAP = {
     "LSD": "Lumpy skin disease virus (Inf. with)",
 }
 
+# =========================================================
+# 질병별 발생 구분 기준(일)
+#
+# 같은 국가에서 발생일 간격이 이 값을 넘으면
+# 별도 발생(에피소드)으로 본다.
+#
+# 현재는 HPAI 기준(28일)만 확정되어 있고
+# 나머지 질병은 임시로 28일을 사용한다.
+# 질병별 기준이 확인되면 아래 숫자만 수정하면 된다.
+# =========================================================
+
+DEFAULT_GAP_DAYS = 28
+
+OUTBREAK_GAP_DAYS_MAP = {
+    "HPAI": 28,
+    "HPAI_NON_POULTRY": 28,
+    "ASF": 28,   # 임시값
+    "FMD": 28,   # 임시값
+    "LSD": 28,   # 임시값
+}
+
+
+def get_gap_days(disease_code):
+    """
+    질병 코드에 맞는 발생 구분 기준일을 반환한다.
+    설정되지 않은 질병은 DEFAULT_GAP_DAYS를 사용한다.
+    """
+
+    return OUTBREAK_GAP_DAYS_MAP.get(
+        disease_code,
+        DEFAULT_GAP_DAYS,
+    )
 
 # =========================================================
 # 국가 × 세부질병(subtype)별 발생건수 조회
@@ -236,6 +268,213 @@ def get_hpai_outbreak_stats(
         "non_poultry": non_poultry_rows,
     }
 
+
+# =========================================================
+# 국가별 발생 기간(일) 조회
+# =========================================================
+
+def get_outbreak_duration_stats(
+    disease_code,
+    start_date,
+    end_date,
+    region=None,
+    country=None,
+    gap_days=None,
+):
+    """
+    outbreak.start_date 기준으로 국가별 발생 기간(일)을 계산한다.
+
+    같은 국가에서 발생일 간격이 gap_days를 넘으면
+    서로 다른 발생(에피소드)으로 본다.
+
+    에피소드는 과거 전체 데이터로 만든 뒤
+    조회 기간(start_date ~ end_date)으로 잘라서 일수를 합산한다.
+
+    반환:
+        country
+        region
+        episode_count
+        outbreak_days
+    """
+
+    disease_name = DISEASE_MAP.get(
+        disease_code
+    )
+
+    if disease_name is None:
+        raise ValueError(
+            "지원하지 않는 질병 코드입니다: "
+            f"{disease_code}"
+        )
+
+    # 직접 넘기지 않으면 질병별 설정값 사용
+    if gap_days is None:
+        gap_days = get_gap_days(
+            disease_code
+        )
+
+    conditions = [
+        "dr.disease = %s"
+    ]
+
+    params = [
+        disease_name
+    ]
+
+    if region:
+
+        conditions.append(
+            "cr.region = %s"
+        )
+
+        params.append(
+            region
+        )
+
+    if country:
+
+        conditions.append(
+            "dr.country = %s"
+        )
+
+        params.append(
+            country
+        )
+
+    where_clause = " AND ".join(
+        conditions
+    )
+
+    sql = f"""
+        WITH target_events AS (
+            SELECT
+                dr.event_id,
+                MAX(dr.country) AS country,
+                MAX(cr.region) AS region
+
+            FROM disease_reports dr
+
+            LEFT JOIN country_regions cr
+                ON dr.country = cr.country
+
+            WHERE {where_clause}
+
+            GROUP BY dr.event_id
+        ),
+
+        outbreak_dates AS (
+            SELECT DISTINCT
+                te.country,
+                te.region,
+                DATE(o.start_date) AS d
+
+            FROM outbreaks o
+
+            JOIN target_events te
+                ON o.event_id = te.event_id
+
+            WHERE o.start_date IS NOT NULL
+              AND o.start_date
+                  < DATE_ADD(%s, INTERVAL 1 DAY)
+        ),
+
+        gaps AS (
+            SELECT
+                country,
+                region,
+                d,
+                LAG(d) OVER (
+                    PARTITION BY country
+                    ORDER BY d
+                ) AS prev_d
+
+            FROM outbreak_dates
+        ),
+
+        episodes AS (
+            SELECT
+                country,
+                region,
+                d,
+                SUM(
+                    CASE
+                        WHEN prev_d IS NULL
+                          OR DATEDIFF(d, prev_d)
+                             > {int(gap_days)}
+                        THEN 1
+                        ELSE 0
+                    END
+                ) OVER (
+                    PARTITION BY country
+                    ORDER BY d
+                ) AS episode_no
+
+            FROM gaps
+        ),
+
+        episode_ranges AS (
+            SELECT
+                country,
+                MAX(region) AS region,
+                episode_no,
+                MIN(d) AS ep_start,
+                MAX(d) AS ep_end
+
+            FROM episodes
+
+            GROUP BY
+                country,
+                episode_no
+        )
+
+        SELECT
+            country,
+            region,
+            COUNT(*) AS episode_count,
+            SUM(
+                DATEDIFF(
+                    LEAST(ep_end, CAST(%s AS DATE)),
+                    GREATEST(ep_start, CAST(%s AS DATE))
+                ) + 1
+            ) AS outbreak_days
+
+        FROM episode_ranges
+
+        WHERE ep_end >= CAST(%s AS DATE)
+          AND ep_start <= CAST(%s AS DATE)
+
+        GROUP BY
+            country,
+            region
+
+        ORDER BY
+            outbreak_days DESC,
+            country
+    """
+
+    params.extend([
+        end_date,
+        end_date,
+        start_date,
+        start_date,
+        end_date,
+    ])
+
+    conn = get_connection()
+
+    try:
+        with conn.cursor() as cursor:
+
+            cursor.execute(
+                sql,
+                params
+            )
+
+            return cursor.fetchall()
+
+    finally:
+
+        conn.close()
 
 # =========================================================
 # Matrix 형태로 변환

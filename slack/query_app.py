@@ -17,6 +17,8 @@ from database.query_db import (
 from database.stats_db import (
     get_outbreak_stats,
     get_hpai_outbreak_stats,
+    get_outbreak_duration_stats,
+    get_gap_days,
     build_matrix,
 )
 
@@ -957,6 +959,13 @@ STATS_VIEW_OPTIONS = [
             "text": "국가 × 세부질병 Matrix",
         },
         "value": "matrix",
+    },
+        {
+        "text": {
+            "type": "plain_text",
+            "text": "국가별 발생 기간(일)",
+        },
+        "value": "duration",
     },
 ]
 
@@ -1986,6 +1995,124 @@ def post_long_message(
             text=prefix + chunk,
         )
 
+# =========================================================
+# 국가별 발생 기간(일) 메시지
+# =========================================================
+
+def build_duration_messages(
+    rows,
+    disease,
+    region_label,
+    country_label,
+    start_date,
+    end_date,
+    gap_days,
+    rows_per_page=40,
+):
+    """
+    국가별 발생 기간(일) 메시지 목록을 만든다.
+
+    표가 길면 코드블록이 깨지지 않도록
+    페이지마다 코드블록을 새로 연다.
+    """
+
+    period_days = (
+        datetime.fromisoformat(end_date)
+        - datetime.fromisoformat(start_date)
+    ).days + 1
+
+    header_lines = [
+        "📅 *WAHIS 국가별 발생 기간(일)*",
+        "",
+        f"*질병:* {disease}",
+        f"*권역:* {region_label}",
+        f"*국가:* {country_label}",
+        (
+            f"*조회기간:* {start_date} ~ {end_date} "
+            f"({period_days}일)"
+        ),
+        (
+            "*기준:* outbreak.start_date, "
+            f"발생일 간격 {gap_days}일 초과 시 별도 발생"
+        ),
+        "",
+    ]
+
+    if not rows:
+
+        return [
+            "\n".join(
+                header_lines
+                + ["조회된 outbreak가 없습니다."]
+            )
+        ]
+
+    table_header = (
+        f"{'Country':<26} "
+        f"{'Episodes':>8} "
+        f"{'Days':>6} "
+        f"{'Ratio':>7}"
+    )
+
+    separator = "-" * len(table_header)
+
+    body_rows = []
+
+    for country, _region, episode_count, days in rows:
+
+        days = int(days)
+
+        ratio = days / period_days * 100
+
+        body_rows.append(
+            f"{country[:26]:<26} "
+            f"{int(episode_count):>8,} "
+            f"{days:>6,} "
+            f"{ratio:>6.1f}%"
+        )
+
+    pages = [
+        body_rows[i:i + rows_per_page]
+        for i in range(
+            0,
+            len(body_rows),
+            rows_per_page,
+        )
+    ]
+
+    messages = []
+
+    for number, page in enumerate(pages, start=1):
+
+        lines = []
+
+        if len(pages) > 1:
+
+            lines += [
+                f"*결과 {number}/{len(pages)}*",
+                "",
+            ]
+
+        if number == 1:
+
+            lines += header_lines
+
+        lines += [
+            "```",
+            table_header,
+            separator,
+        ]
+
+        lines += page
+
+        lines.append("```")
+
+        messages.append(
+            "\n".join(lines)
+        )
+
+    return messages
+
 
 # =========================================================
 # /wahis-stats 조회
@@ -2101,6 +2228,83 @@ def handle_wahis_stats_search(
         if country == "all"
         else country
     )
+
+    # =====================================================
+    # 국가별 발생 기간(일)
+    #
+    # HPAI는 가금 / 가금 외를 각각 계산한다.
+    # =====================================================
+
+    if view_type == "duration":
+
+        if disease == "HPAI":
+
+            targets = [
+                (
+                    "HPAI - 가금 (Poultry)",
+                    "HPAI",
+                ),
+                (
+                    "HPAI - 가금 외 "
+                    "(Non-poultry including wild birds)",
+                    "HPAI_NON_POULTRY",
+                ),
+            ]
+
+        else:
+
+            targets = [
+                (disease, disease)
+            ]
+
+        try:
+
+            for label, code in targets:
+
+                gap_days = get_gap_days(code)
+
+                rows = get_outbreak_duration_stats(
+                    disease_code=code,
+                    start_date=start_date,
+                    end_date=end_date,
+                    region=db_region,
+                    country=db_country,
+                    gap_days=gap_days,
+                )
+
+                for message in build_duration_messages(
+                    rows=rows,
+                    disease=label,
+                    region_label=region_label,
+                    country_label=country_label,
+                    start_date=start_date,
+                    end_date=end_date,
+                    gap_days=gap_days,
+                ):
+
+                    client.chat_postMessage(
+                        channel=body["user"]["id"],
+                        text=message,
+                    )
+
+        except Exception as e:
+
+            print(
+                "WAHIS 발생 기간 조회 오류: "
+                f"{type(e).__name__}: {e}"
+            )
+
+            client.chat_postMessage(
+                channel=body["user"]["id"],
+                text=(
+                    "❌ 발생 기간 조회 중 오류가 "
+                    "발생했습니다.\n"
+                    "터미널 로그를 확인해주세요."
+                ),
+            )
+
+        return
+
 
     # =====================================================
     # HPAI
