@@ -2288,11 +2288,18 @@ def build_event_list_modal(params, page):
             outbreak_count,
             report_id,
             _total,
+            event_start,
         ) = row
 
-        date_text = (
+        first_start_text = (
             first_start.strftime("%Y-%m-%d")
             if first_start
+            else "-"
+        )
+
+        event_start_text = (
+            event_start.strftime("%Y-%m-%d")
+            if event_start
             else "-"
         )
 
@@ -2314,8 +2321,10 @@ def build_event_list_modal(params, page):
                     "type": "mrkdwn",
                     "text": (
                         f"🌍 *{country}*{subtype_text}\n"
-                        f"🕒 {date_text} 시작 · "
+                        f"🕒 조회 기간 내 첫 발생 "
+                        f"{first_start_text} · "
                         f"outbreak {int(outbreak_count)}건\n"
+                        f"📌 Event 시작 {event_start_text}\n"
                         f"🔎 Event `{event_id}` · "
                         f"<{url}|WAHIS에서 보기>"
                     ),

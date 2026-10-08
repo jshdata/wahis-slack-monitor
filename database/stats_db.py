@@ -551,7 +551,8 @@ def get_outbreak_events(
                 dr.event_id,
                 MAX(dr.country) AS country,
                 MAX(cr.region) AS region,
-                MAX(dr.subtype) AS subtype
+                MAX(dr.subtype) AS subtype,
+                MAX(dr.event_start_date) AS event_start_date
 
             FROM disease_reports dr
 
@@ -581,7 +582,9 @@ def get_outbreak_events(
                 LIMIT 1
             ) AS latest_report_id,
 
-            COUNT(*) OVER () AS total_count
+            COUNT(*) OVER () AS total_count,
+
+            te.event_start_date
 
         FROM outbreaks o
 
@@ -595,7 +598,8 @@ def get_outbreak_events(
         GROUP BY
             te.event_id,
             te.country,
-            te.subtype
+            te.subtype,
+            te.event_start_date
 
         ORDER BY
             first_start DESC,
