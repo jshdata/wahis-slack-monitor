@@ -965,7 +965,7 @@ STATS_VIEW_OPTIONS = [
         {
         "text": {
             "type": "plain_text",
-            "text": "국가별 발생 기간(일)",
+            "text": "국가별 추정 관찰기간(일)",
         },
         "value": "duration",
     },
@@ -2024,7 +2024,7 @@ def build_duration_messages(
     ).days + 1
 
     header_lines = [
-        "📅 *WAHIS 국가별 발생 기간(일)*",
+        "📅 *WAHIS 국가별 추정 관찰기간(일)*",
         "",
         f"*질병:* {disease}",
         f"*권역:* {region_label}",
@@ -2035,8 +2035,11 @@ def build_duration_messages(
         ),
         (
             "*기준:* outbreak.start_date, "
-            f"발생일 간격 {gap_days}일 초과 시 별도 발생"
+            f"발생일 간격 {gap_days}일 초과 시 별도 Episode, "
+            f"발생일 포함 {gap_days}일 관찰기간 적용"
         ),
+        "*Outbreaks:* 조회기간 내 발생건수 · *Episodes:* 전년도 이월 포함 관찰구간 수",
+        "*주의:* 실제 감염 지속기간이 아닌 시작일 기준 추정 관찰기간입니다.",
         "",
     ]
 
@@ -2051,6 +2054,7 @@ def build_duration_messages(
 
     table_header = (
         f"{'Country':<26} "
+        f"{'Outbreaks':>9} "
         f"{'Episodes':>8} "
         f"{'Days':>6} "
         f"{'Ratio':>7}"
@@ -2060,7 +2064,7 @@ def build_duration_messages(
 
     body_rows = []
 
-    for country, _region, episode_count, days in rows:
+    for country, _region, outbreak_count, episode_count, days in rows:
 
         days = int(days)
 
@@ -2068,6 +2072,7 @@ def build_duration_messages(
 
         body_rows.append(
             f"{country[:26]:<26} "
+            f"{int(outbreak_count):>9,} "
             f"{int(episode_count):>8,} "
             f"{days:>6,} "
             f"{ratio:>6.1f}%"
