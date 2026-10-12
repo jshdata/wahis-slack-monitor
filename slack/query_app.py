@@ -583,6 +583,7 @@ def handle_region_change(
         view=build_search_modal(
             selected_region=selected_region,
             country_options=country_options,
+            source_channel=body["view"].get("private_metadata", ""),
         ),
     )
 
@@ -979,6 +980,7 @@ STATS_VIEW_OPTIONS = [
 def build_stats_modal(
     selected_region="all",
     country_options=None,
+    source_channel=None,
 ):
 
     if country_options is None:
@@ -997,6 +999,7 @@ def build_stats_modal(
         "type": "modal",
 
         "callback_id": "wahis_stats_modal",
+        "private_metadata": source_channel or "",
 
         "title": {
             "type": "plain_text",
@@ -1114,6 +1117,7 @@ def build_stats_modal(
             {
                 "type": "input",
                 "block_id": "stats_start_date_block",
+                "optional": True,
 
                 "label": {
                     "type": "plain_text",
@@ -1137,6 +1141,7 @@ def build_stats_modal(
             {
                 "type": "input",
                 "block_id": "stats_end_date_block",
+                "optional": True,
 
                 "label": {
                     "type": "plain_text",
@@ -1151,6 +1156,32 @@ def build_stats_modal(
                         "type": "plain_text",
                         "text": "종료일 선택",
                     },
+                },
+            },
+
+            # ---------------------------------------------
+            # 날짜 직접 입력 (달력보다 우선)
+            # ---------------------------------------------
+            {
+                "type": "input",
+                "block_id": "stats_start_text_block",
+                "optional": True,
+                "label": {"type": "plain_text", "text": "⌨️ 시작일 직접 입력 (선택)"},
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "stats_start_text",
+                    "placeholder": {"type": "plain_text", "text": "예: 20230101 또는 2023-01-01"},
+                },
+            },
+            {
+                "type": "input",
+                "block_id": "stats_end_text_block",
+                "optional": True,
+                "label": {"type": "plain_text", "text": "⌨️ 종료일 직접 입력 (선택)"},
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "stats_end_text",
+                    "placeholder": {"type": "plain_text", "text": "예: 20231231 또는 2023-12-31"},
                 },
             },
 
@@ -1196,7 +1227,7 @@ def handle_wahis_stats_command(
 
     client.views_open(
         trigger_id=body["trigger_id"],
-        view=build_stats_modal(),
+        view=build_stats_modal(source_channel=body.get("channel_id") or body.get("channel", {}).get("id")),
     )
 
 
@@ -2455,7 +2486,8 @@ def handle_open_event_list(
     # trigger_id는 3초 안에 써야 하므로
     # 먼저 '불러오는 중' 모달을 열고
     # DB 조회 후 내용을 교체한다.
-    opened = client.views_open(
+    open_method = client.views_push if body.get("view") else client.views_open
+    opened = open_method(
         trigger_id=body["trigger_id"],
         view=build_message_modal(
             "⏳ Event 목록을 불러오는 중입니다..."
@@ -2567,6 +2599,140 @@ def handle_event_list_next(
         1,
     )
 
+def parse_stats_date(raw):
+    """Accept YYYYMMDD or YYYY-MM-DD and reject impossible dates."""
+    raw = (raw or "").strip()
+    if len(raw) == 8 and raw.isdigit():
+        return datetime.strptime(raw, "%Y%m%d").date().isoformat()
+    return datetime.strptime(raw, "%Y-%m-%d").date().isoformat()
+
+
+# /wahis-stats: 결과는 DM/채널 메시지 대신 모달에서만 표시한다.
+# 페이지별 내용은 프로세스 메모리에 보관한다(재시작 시 만료).
+from uuid import uuid4
+
+_STATS_MODAL_RESULTS = {}
+
+
+class StatsModalCollector:
+    """기존 통계 메시지 생성기를 변경하지 않고 결과를 수집한다."""
+    def __init__(self):
+        self.items = []
+
+    def chat_postMessage(self, channel, text, **kwargs):
+        blocks = kwargs.get("blocks") or []
+        button = next((e for b in blocks if b.get("type") == "actions"
+                       for e in b.get("elements", [])
+                       if e.get("action_id") == "open_event_list"), None)
+        if button:
+            self.items.append({"kind": "event", "label": text,
+                               "value": button["value"]})
+        else:
+            self.items.append({"kind": "text", "text": text})
+        return {"ok": True}
+
+
+def _stats_modal_pages(items):
+    # Slack section text 3000자 제한, modal blocks 100개 제한 고려
+    blocks = []
+    for item in items:
+        if item["kind"] == "event":
+            blocks.append({"type": "section", "text": {"type": "mrkdwn",
+                "text": item["label"][:2900]}})
+            blocks.append({"type": "actions", "elements": [{
+                "type": "button", "action_id": "open_event_list",
+                "text": {"type": "plain_text", "text": "Event 목록 보기"},
+                "value": item["value"]}]})
+        else:
+            content = item["text"]
+            # 긴 표는 코드블록 형식을 유지하면서 안전하게 분할한다.
+            if len(content) <= 2900:
+                chunks = [content]
+            else:
+                chunks, chunk = [], ""
+                for line in content.splitlines(keepends=True):
+                    if len(chunk) + len(line) > 2700 and chunk:
+                        chunks.append(chunk)
+                        chunk = ""
+                    while len(line) > 2700:
+                        chunks.append(line[:2700]); line = line[2700:]
+                    chunk += line
+                if chunk: chunks.append(chunk)
+            for chunk in chunks:
+                # 원래 결과가 코드블록을 포함하는 경우 Slack 포맷을 유지
+                if chunk.count("```") % 2:
+                    chunk += "\n```"
+                blocks.append({"type": "section", "text": {
+                    "type": "mrkdwn", "text": chunk or "(결과 없음)"}})
+        blocks.append({"type": "divider"})
+    if not blocks:
+        blocks = [{"type": "section", "text": {"type": "mrkdwn",
+                   "text": "조회 결과가 없습니다."}}]
+    pages, current = [], []
+    for block in blocks:
+        if len(current) >= 35:
+            pages.append(current); current = []
+        current.append(block)
+    if current: pages.append(current)
+    return pages
+
+
+def build_stats_result_modal(key, page=0):
+    pages = _STATS_MODAL_RESULTS[key]
+    page = max(0, min(page, len(pages)-1))
+    blocks = [{"type": "context", "elements": [{"type": "mrkdwn",
+        "text": f"통계 조회 결과 · {page+1}/{len(pages)} 페이지 · 알림 없이 표시"}]}]
+    blocks.extend(pages[page])
+    if len(pages) > 1:
+        buttons = []
+        if page > 0:
+            buttons.append({"type": "button", "action_id": "stats_result_prev",
+                "text": {"type": "plain_text", "text": "이전"}})
+        if page < len(pages)-1:
+            buttons.append({"type": "button", "action_id": "stats_result_next",
+                "text": {"type": "plain_text", "text": "다음"}})
+        blocks.append({"type": "actions", "elements": buttons})
+    return {"type": "modal", "callback_id": "wahis_stats_result_modal",
+        "title": {"type": "plain_text", "text": "WAHIS 통계 결과"},
+        "close": {"type": "plain_text", "text": "닫기"},
+        "private_metadata": json.dumps({"key": key, "page": page}),
+        "blocks": blocks}
+
+
+def show_stats_result_modal(client, body, collector):
+    key = uuid4().hex
+    _STATS_MODAL_RESULTS[key] = _stats_modal_pages(collector.items)
+    # 오래된 결과의 메모리 사용량 제한
+    while len(_STATS_MODAL_RESULTS) > 30:
+        _STATS_MODAL_RESULTS.pop(next(iter(_STATS_MODAL_RESULTS)))
+    client.views_update(view_id=body["view"]["id"],
+                        view=build_stats_result_modal(key))
+
+
+def change_stats_result_page(body, client, delta):
+    meta = json.loads(body["view"].get("private_metadata") or "{}")
+    key = meta.get("key")
+    if key not in _STATS_MODAL_RESULTS:
+        client.views_update(view_id=body["view"]["id"],
+            view=build_message_modal("조회 결과가 만료되었습니다. /wahis-stats로 다시 조회해주세요."))
+        return
+    client.views_update(view_id=body["view"]["id"],
+        hash=body["view"].get("hash"),
+        view=build_stats_result_modal(key, int(meta.get("page", 0)) + delta))
+
+
+@app.action("stats_result_prev")
+def handle_stats_result_prev(ack, body, client):
+    ack()
+    change_stats_result_page(body, client, -1)
+
+
+@app.action("stats_result_next")
+def handle_stats_result_next(ack, body, client):
+    ack()
+    change_stats_result_page(body, client, 1)
+
+
 # =========================================================
 # /wahis-stats 조회
 # =========================================================
@@ -2606,17 +2772,17 @@ def handle_wahis_stats_search(
         ["value"]
     )
 
-    start_date = (
-        values["stats_start_date_block"]
-        ["stats_start_date"]
-        ["selected_date"]
-    )
-
-    end_date = (
-        values["stats_end_date_block"]
-        ["stats_end_date"]
-        ["selected_date"]
-    )
+    # Direct input takes precedence over calendar selection.
+    start_text = (values.get("stats_start_text_block", {})
+                  .get("stats_start_text", {}).get("value") or "").strip()
+    end_text = (values.get("stats_end_text_block", {})
+                .get("stats_end_text", {}).get("value") or "").strip()
+    start_calendar = (values.get("stats_start_date_block", {})
+                      .get("stats_start_date", {}).get("selected_date"))
+    end_calendar = (values.get("stats_end_date_block", {})
+                    .get("stats_end_date", {}).get("selected_date"))
+    start_date = start_text or start_calendar
+    end_date = end_text or end_calendar
 
     view_type = (
         values["stats_view_block"]
@@ -2628,6 +2794,26 @@ def handle_wahis_stats_search(
     # =====================================================
     # 날짜 검증
     # =====================================================
+
+    errors = {}
+    for raw, block_id, label in [
+        (start_date, "stats_start_text_block" if start_text else "stats_start_date_block", "시작일"),
+        (end_date, "stats_end_text_block" if end_text else "stats_end_date_block", "종료일"),
+    ]:
+        if not raw:
+            errors[block_id] = f"{label}을 선택하거나 입력해주세요."
+            continue
+        try:
+            parsed = parse_stats_date(raw)
+            if label == "시작일":
+                start_date = parsed
+            else:
+                end_date = parsed
+        except ValueError:
+            errors[block_id] = f"{label}: YYYYMMDD 또는 YYYY-MM-DD 형식의 유효한 날짜를 입력해주세요."
+    if errors:
+        ack(response_action="errors", errors=errors)
+        return
 
     if start_date > end_date:
 
@@ -2643,7 +2829,19 @@ def handle_wahis_stats_search(
 
         return
 
-    ack()
+    # 제출 시 모달을 닫지 않고 로딩 화면으로 즉시 교체한다.
+    ack(response_action="update", view={
+        "type": "modal", "callback_id": "wahis_stats_loading_modal",
+        "title": {"type": "plain_text", "text": "WAHIS 통계 조회"},
+        "close": {"type": "plain_text", "text": "닫기"},
+        "blocks": [{"type": "section", "text": {"type": "mrkdwn",
+            "text": "⏳ 통계를 계산하고 있습니다..."}}]
+    })
+
+    # Slack API client는 유지하고, 기존 통계 출력만 모달용으로 수집한다.
+    slack_client = client
+    collector = StatsModalCollector()
+    client = collector
 
     # =====================================================
     # Slack 값 → DB 값
@@ -2766,6 +2964,7 @@ def handle_wahis_stats_search(
                 ),
             )
 
+        show_stats_result_modal(slack_client, body, collector)
         return
 
 
@@ -2821,6 +3020,7 @@ def handle_wahis_stats_search(
                 ),
             )
 
+            show_stats_result_modal(slack_client, body, collector)
             return
 
         # =================================================
@@ -2937,6 +3137,7 @@ def handle_wahis_stats_search(
                 db_country=db_country,
             )
 
+        show_stats_result_modal(slack_client, body, collector)
         return
 
     # =====================================================
@@ -2975,6 +3176,7 @@ def handle_wahis_stats_search(
             ),
         )
 
+        show_stats_result_modal(slack_client, body, collector)
         return
 
     # =====================================================
@@ -3028,6 +3230,9 @@ def handle_wahis_stats_search(
             db_region=db_region,
             db_country=db_country,
         )
+
+
+    show_stats_result_modal(slack_client, body, collector)
 
 # =========================================================
 # Socket Mode
