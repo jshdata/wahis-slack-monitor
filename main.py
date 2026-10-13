@@ -7,7 +7,10 @@ from wahis.detail_api import get_report_detail
 from database.db import (
     get_connection,
     get_existing_report_ids,
-    insert_disease_report
+    insert_disease_report,
+    get_unsent_slack_reports,
+    mark_slack_sent,
+    mark_slack_failed
 )
 
 from database.detail_db import (
@@ -365,6 +368,112 @@ def recover_unprocessed_details():
     )
 
 
+# =========================================================
+# Slack 전송 및 결과 기록
+# =========================================================
+
+def send_and_record_slack(event):
+    """
+    Slack 전송 성공 시 DB에 완료 상태를 기록한다.
+
+    반환값:
+        True  : Slack 전송 및 DB 기록 성공
+        False : Slack 전송 또는 DB 기록 실패
+    """
+
+    report_id = event["reportId"]
+
+    try:
+        send_new_report_alert(event)
+
+    except Exception as e:
+        print(
+            f"Slack 전송 실패: report_id={report_id}, "
+            f"error={repr(e)}"
+        )
+        traceback.print_exc()
+
+        try:
+            mark_slack_failed(report_id)
+        except Exception as db_error:
+            print(
+                f"Slack 실패 상태 기록 오류: "
+                f"{repr(db_error)}"
+            )
+            traceback.print_exc()
+
+        return False
+
+    # 실제 Slack 전송이 성공한 이후에만 완료 처리
+    try:
+        mark_slack_sent(report_id)
+
+    except Exception as e:
+        print(
+            f"Slack 전송은 성공했으나 DB 기록 실패: "
+            f"report_id={report_id}, error={repr(e)}"
+        )
+        traceback.print_exc()
+
+        # 이 경우 다음 실행에서 중복 전송될 가능성이 있음
+        return False
+
+    print(
+        f"Slack 전송 및 DB 기록 완료: "
+        f"report_id={report_id}"
+    )
+
+    return True
+
+
+# =========================================================
+# Slack 미전송 보고 자동 복구
+# =========================================================
+
+def recover_unsent_slack_alerts():
+    """
+    이전 실행에서 실패한 Slack 알림을 재전송한다.
+    """
+
+    print()
+    print("=" * 50)
+    print("Slack 미전송 알림 복구 확인")
+    print("=" * 50)
+
+    events = get_unsent_slack_reports(limit=20)
+
+    if not events:
+        print("복구할 Slack 미전송 알림이 없습니다.")
+        return 0, 0
+
+    success_count = 0
+    fail_count = 0
+
+    print(f"Slack 재전송 대상: {len(events)}건")
+
+    for event in events:
+        report_id = event["reportId"]
+
+        print(
+            f"Slack 재전송 시도: "
+            f"report_id={report_id}"
+        )
+
+        if send_and_record_slack(event):
+            success_count += 1
+        else:
+            fail_count += 1
+
+    print(
+        f"Slack 재전송 완료: "
+        f"성공 {success_count}건 / "
+        f"실패 {fail_count}건"
+    )
+
+    return success_count, fail_count
+
+
+
 def main():
 
     print(
@@ -387,6 +496,11 @@ def main():
         recovery_success_count,
         recovery_fail_count
     ) = recover_unprocessed_details()
+
+    (
+        slack_recovery_success_count,
+        slack_recovery_fail_count
+    ) = recover_unsent_slack_alerts()
 
     # =====================================================
     # 2. 신규 Report 탐색
@@ -585,57 +699,16 @@ def main():
                 detail_fail_count += 1
 
             # =============================================
-            # 2-3. Slack 알림
-            #
-            # 상세정보 적재 성공 여부와 관계없이
-            # 신규 Report 알림은 발송한다.
+            # 2-3. Slack 알림 및 전송 상태 기록
             # =============================================
 
-            try:
-
-                send_new_report_alert(
-                    event
-                )
+            if send_and_record_slack(event):
 
                 slack_success_count += 1
 
-                print(
-                    f"Slack 알림 성공: "
-                    f"report_id={report_id}"
-                )
-
-            except Exception as e:
+            else:
 
                 slack_fail_count += 1
-
-                print()
-
-                print(
-                    "Slack 알림 오류"
-                )
-
-                print(
-                    f"report_id: "
-                    f"{report_id}"
-                )
-
-                print(
-                    f"예외 종류: "
-                    f"{type(e).__name__}"
-                )
-
-                print(
-                    f"오류 내용: "
-                    f"{repr(e)}"
-                )
-
-                traceback.print_exc()
-
-                print(
-                    "Slack 알림 실패와 "
-                    "관계없이 다음 Report를 "
-                    "계속 처리합니다."
-                )
 
             new_events.append(
                 event
@@ -720,6 +793,17 @@ def main():
     print(
         f"Slack 알림 실패: "
         f"{slack_fail_count}건"
+    )
+
+    print()
+    print(
+        f"Slack 재전송 성공: "
+        f"{slack_recovery_success_count}건"
+    )
+
+    print(
+        f"Slack 재전송 실패: "
+        f"{slack_recovery_fail_count}건"
     )
 
 

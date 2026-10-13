@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 from datetime import datetime
@@ -334,15 +335,17 @@ def insert_disease_report(event):
             event_id,
             country,
             disease,
-            submission_date
+            submission_date,
+            slack_event_json
         )
-        VALUES (%s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s)
 
         ON DUPLICATE KEY UPDATE
             event_id = VALUES(event_id),
             country = VALUES(country),
             disease = VALUES(disease),
-            submission_date = VALUES(submission_date)
+            submission_date = VALUES(submission_date),
+            slack_event_json = VALUES(slack_event_json)
         """
 
         submission_date = convert_datetime(
@@ -356,7 +359,8 @@ def insert_disease_report(event):
                 event["eventId"],
                 event["country"],
                 event["disease"],
-                submission_date
+                submission_date,
+                json.dumps(event, ensure_ascii=False, default=str)
             )
         )
 
@@ -406,6 +410,105 @@ def insert_disease_report(event):
 
             except Exception:
                 pass
+
+
+
+def get_unsent_slack_reports(limit=20):
+    """
+    원본 이벤트가 저장된 Slack 미전송 보고 조회
+    """
+
+    conn = get_connection()
+
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT
+                    report_id,
+                    slack_event_json
+                FROM disease_reports
+                WHERE slack_sent = 0
+                  AND slack_retry_count < 5
+                  AND slack_event_json IS NOT NULL
+                ORDER BY submission_date DESC
+                LIMIT %s
+                """,
+                (limit,)
+            )
+
+            rows = cursor.fetchall()
+
+            return [
+                json.loads(row[1])
+                for row in rows
+            ]
+
+    finally:
+        conn.close()
+
+
+
+def mark_slack_sent(report_id):
+    """
+    Slack 전송 성공 상태 기록
+    """
+
+    conn = get_connection()
+
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE disease_reports
+                SET
+                    slack_sent = 1,
+                    slack_sent_at = UTC_TIMESTAMP()
+                WHERE report_id = %s
+                """,
+                (report_id,)
+            )
+
+        conn.commit()
+
+    except Exception:
+        conn.rollback()
+        raise
+
+    finally:
+        conn.close()
+
+
+
+def mark_slack_failed(report_id):
+    """
+    Slack 전송 실패 횟수 증가
+    """
+
+    conn = get_connection()
+
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE disease_reports
+                SET
+                    slack_retry_count = slack_retry_count + 1
+                WHERE report_id = %s
+                  AND slack_sent = 0
+                """,
+                (report_id,)
+            )
+
+        conn.commit()
+
+    except Exception:
+        conn.rollback()
+        raise
+
+    finally:
+        conn.close()
+
 
 
 # =========================================================

@@ -1,41 +1,67 @@
+
 name: WAHIS Monitor
 
 on:
+  # 10분마다 자동 실행 (UTC 기준)
+  schedule:
+    - cron: "*/10 * * * *"
+
+  # GitHub Actions에서 수동 실행 가능
   workflow_dispatch:
+
+# 동일한 WAHIS Monitor 작업의 동시 실행 방지
+concurrency:
+  group: wahis-monitor
+  cancel-in-progress: false
 
 jobs:
   monitor:
     runs-on: ubuntu-latest
 
     steps:
+      # -------------------------------------------------
+      # 1. GitHub 저장소 코드 가져오기
+      # -------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # -------------------------------------------------
+      # 2. Python 환경 설정
+      # -------------------------------------------------
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
+      # -------------------------------------------------
+      # 3. 필요한 라이브러리 설치
+      # -------------------------------------------------
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # SLACK_MONITOR_ENV Secret을 .env 파일로 생성
+      # -------------------------------------------------
+      # 4. 환경변수 파일 생성
+      # -------------------------------------------------
       - name: Create .env file
         env:
           SLACK_MONITOR_ENV: ${{ secrets.SLACK_MONITOR_ENV }}
         run: |
           printf '%s\n' "$SLACK_MONITOR_ENV" > .env
 
-      # Aiven CA 인증서 생성
+      # -------------------------------------------------
+      # 5. Aiven SSL 인증서 생성
+      # -------------------------------------------------
       - name: Create Aiven CA certificate
         env:
           DB_SSL_CA_CERT: ${{ secrets.DB_SSL_CA_CERT }}
         run: |
           printf '%s\n' "$DB_SSL_CA_CERT" > ca.pem
 
-      # WAHIS 모니터 실행
+      # -------------------------------------------------
+      # 6. WAHIS 모니터 실행
+      # -------------------------------------------------
       - name: Run WAHIS Monitor
         run: |
           python main.py
