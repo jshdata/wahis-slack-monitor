@@ -3,3 +3,6 @@ pymysql
 cryptography
 python-dotenv
 slack-bolt
+
+beautifulsoup4
+PyMySQL
