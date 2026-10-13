@@ -144,6 +144,61 @@ def send_new_report_alert(event):
         "&fromPage=event-dashboard-url"
     )
 
+
+    # -----------------------------------------------------
+    # APQA 수입 관련 정보 조회
+    # -----------------------------------------------------
+
+    try:
+        from apqa.matcher import analyze_apqa
+
+        apqa_result = analyze_apqa(event)
+
+    except Exception as e:
+        print(f"APQA 매칭 오류: {e}")
+
+        apqa_result = {
+            "priority": "UNKNOWN",
+            "status": "APQA 정보 조회 실패",
+            "country_kr": None,
+            "disease_code": None,
+            "products": [],
+            "restrictions": []
+        }
+
+    priority = apqa_result["priority"]
+
+    priority_labels = {
+        "HIGH": "🚨 수입 관련 우선 검토",
+        "CAUTION": "⚠️ 일부 지역 수입제한 — 추가 확인",
+        "RESTRICTED": "🛑 전 지역 수입제한 조치 확인",
+        "NORMAL": "📋 일반 WAHIS 신규 리포트",
+        "UNKNOWN": "❓ APQA 정보 확인 필요"
+    }
+
+    alert_title = priority_labels.get(
+        priority,
+        "🚨 WAHIS 신규 리포트"
+    )
+
+    products = apqa_result.get("products", [])
+
+    product_text = (
+        "\n".join(f"• {p}" for p in products[:5])
+        if products
+        else "관련 수입허용 품목 미확인"
+    )
+
+    apqa_text = (
+        "*🇰🇷 APQA 수입 관련 정보*\n"
+        f"*국가:* {apqa_result.get('country_kr') or '확인 필요'}\n"
+        f"*질병 코드:* {apqa_result.get('disease_code') or '확인 필요'}\n"
+        f"*수입허용 관련 품목:*\n{product_text}\n"
+        f"*수입제한 상태:* {apqa_result.get('status')}\n"
+        f"*알림 중요도:* {priority}"
+    )
+
+
     # -----------------------------------------------------
     # Slack Block Kit
     # -----------------------------------------------------
@@ -155,7 +210,7 @@ def send_new_report_alert(event):
             "type": "header",
             "text": {
                 "type": "plain_text",
-                "text": "🚨 WAHIS 신규 리포트"
+                "text": alert_title
             }
         },
 
@@ -267,10 +322,32 @@ def send_new_report_alert(event):
 
     ]
 
+
+    # -----------------------------------------------------
+    # APQA 정보를 WAHIS 상세보기 버튼 바로 위에 추가
+    # -----------------------------------------------------
+
+    apqa_blocks = [
+        {
+            "type": "divider"
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": apqa_text
+            }
+        }
+    ]
+
+    # 기존 마지막 블록은 WAHIS 상세보기 버튼
+    blocks[-1:-1] = apqa_blocks
+
+
     send_slack_message(
         blocks=blocks,
         text=(
-            f"🚨 WAHIS 신규 리포트 - "
+            f"{alert_title} - "
             f"{country} / {disease}"
         )
     )
