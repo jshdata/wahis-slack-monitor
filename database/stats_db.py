@@ -1,7 +1,7 @@
 # database/stats_db.py
 
 from database.db import get_connection
-from database.regions import region_filter
+from database.regions import KNOWN_REGIONS, region_filter
 
 # =========================================================
 
@@ -1119,7 +1119,7 @@ def build_matrix(rows):
 
         # ---------------------------------------------
 
-        if not region:
+        if region not in KNOWN_REGIONS:
 
             region = "Other"
 
@@ -1128,6 +1128,9 @@ def build_matrix(rows):
         # 권역 × subtype Matrix
 
         # ---------------------------------------------
+
+        if region in ("North America", "South America"):
+            region = "America"
 
         if region not in region_matrix:
 

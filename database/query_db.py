@@ -45,17 +45,6 @@ DISEASE_MAP = {
 
 
 # =========================================================
-# Slack에서 '기타' 선택 시 포함할 DB 권역
-# =========================================================
-
-OTHER_REGIONS = [
-    "North America",
-    "South America",
-    "Oceania",
-]
-
-
-# =========================================================
 # KST → DB UTC 변환
 # =========================================================
 
@@ -176,37 +165,26 @@ def get_countries(region=None):
         cursor = conn.cursor()
 
         sql = """
-            SELECT country
-            FROM country_regions
-            WHERE 1 = 1
+            SELECT countries.country
+            FROM (
+                SELECT country FROM country_regions
+                UNION
+                SELECT country FROM disease_reports
+            ) countries
+            LEFT JOIN country_regions cr ON countries.country = cr.country
+            WHERE countries.country IS NOT NULL AND countries.country <> ''
         """
 
         params = []
 
         if region:
 
-            if region == "Other":
-
-                placeholders = ", ".join(
-                    ["%s"] * len(OTHER_REGIONS)
-                )
-
-                sql += f"""
-                    AND region IN ({placeholders})
-                """
-
-                params.extend(
-                    OTHER_REGIONS
-                )
-
-            else:
-
-                condition, region_params = region_filter(region, "region")
-                sql += f" AND {condition}"
-                params.extend(region_params)
+            condition, region_params = region_filter(region, "cr.region")
+            sql += f" AND {condition}"
+            params.extend(region_params)
 
         sql += """
-            ORDER BY country
+            ORDER BY countries.country
         """
 
         cursor.execute(
@@ -326,7 +304,7 @@ def search_reports(
                 dr.report_status
             FROM disease_reports dr
 
-            JOIN country_regions cr
+            LEFT JOIN country_regions cr
                 ON dr.country = cr.country
 
             WHERE 1 = 1
@@ -340,25 +318,9 @@ def search_reports(
 
         if region:
 
-            if region == "Other":
-
-                placeholders = ", ".join(
-                    ["%s"] * len(OTHER_REGIONS)
-                )
-
-                sql += f"""
-                    AND cr.region IN ({placeholders})
-                """
-
-                params.extend(
-                    OTHER_REGIONS
-                )
-
-            else:
-
-                condition, region_params = region_filter(region, "cr.region")
-                sql += f" AND {condition}"
-                params.extend(region_params)
+            condition, region_params = region_filter(region, "cr.region")
+            sql += f" AND {condition}"
+            params.extend(region_params)
 
         # -------------------------------------------------
         # 국가

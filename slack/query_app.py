@@ -4,6 +4,8 @@ from datetime import datetime
 
 from dotenv import load_dotenv
 
+from slack.stats_report import build_matrix_report
+
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
@@ -98,6 +100,10 @@ REGION_OPTIONS = [
         },
         "value": "Oceania",
     },
+    {
+        "text": {"type": "plain_text", "text": "기타"},
+        "value": "Other",
+    },
 ]
 
 
@@ -172,7 +178,7 @@ def build_country_options(region=None):
     선택된 권역에 맞는 국가 옵션 생성
 
     region:
-        None   -> 전체 상태
+        None / all -> 전체 국가
         Asia
         Europe
         Africa
@@ -180,17 +186,8 @@ def build_country_options(region=None):
         Oceania
     """
 
-    # 권역 전체일 때는 국가도 전체만 표시
-    if region is None:
-        return [
-            {
-                "text": {
-                    "type": "plain_text",
-                    "text": "전체",
-                },
-                "value": "all",
-            }
-        ]
+    if region == "all":
+        region = None
 
     countries = get_countries(region)
 
@@ -216,6 +213,25 @@ def build_country_options(region=None):
         )
 
     return options
+
+
+def build_country_select_options(options):
+    """Keep every country selectable within Slack's 100-option limit."""
+    if len(options) <= 100:
+        return {"options": options}
+
+    return {
+        "option_groups": [
+            {
+                "label": {
+                    "type": "plain_text",
+                    "text": f"Countries {start + 1}-{min(start + 100, len(options))}",
+                },
+                "options": options[start:start + 100],
+            }
+            for start in range(0, len(options), 100)
+        ]
+    }
 
 
 # =========================================================
@@ -378,7 +394,7 @@ def build_search_modal(
 
                     "initial_option": country_options[0],
 
-                    "options": country_options,
+                    **build_country_select_options(country_options),
                 },
             },
 
@@ -765,6 +781,7 @@ def handle_wahis_search(
         "Africa": "아프리카",
         "America": "아메리카",
         "Oceania": "오세아니아",
+        "Other": "기타",
     }.get(
         region,
         region,
@@ -1125,8 +1142,7 @@ def build_stats_modal(
                     "initial_option":
                         country_options[0],
 
-                    "options":
-                        country_options,
+                    **build_country_select_options(country_options),
                 },
             },
 
@@ -1487,9 +1503,9 @@ def build_matrix_text(
     # 표 너비
     # =====================================================
 
-    country_width = 20
-    subtype_width = 10
-    total_width = 8
+    country_width = max(len("Region/Country"), *(len(c) for c in countries), *(len(r) for r in region_matrix))
+    subtype_widths = {subtype: max(len(subtype), len(f"{subtype_totals[subtype]:,}")) for subtype in subtypes}
+    total_width = max(len("Total"), len(f"{grand_total:,}"))
 
     lines.append(
         "```"
@@ -1507,7 +1523,7 @@ def build_matrix_text(
 
         header_text += (
             f" "
-            f"{subtype[:subtype_width]:>{subtype_width}}"
+            f"{subtype:>{subtype_widths[subtype]}}"
         )
 
     header_text += (
@@ -1531,8 +1547,7 @@ def build_matrix_text(
         "Asia",
         "Europe",
         "Africa",
-        "North America",
-        "South America",
+        "America",
         "Oceania",
         "Other",
     ]
@@ -1567,7 +1582,7 @@ def build_matrix_text(
 
             row_text += (
                 f" "
-                f"{count:>{subtype_width},}"
+                f"{count:>{subtype_widths[subtype]},}"
             )
 
         row_text += (
@@ -1628,7 +1643,7 @@ def build_matrix_text(
 
             row_text += (
                 f" "
-                f"{count:>{subtype_width},}"
+                f"{count:>{subtype_widths[subtype]},}"
             )
 
         row_text += (
@@ -1656,7 +1671,7 @@ def build_matrix_text(
 
         total_text += (
             f" "
-            f"{subtype_totals[subtype]:>{subtype_width},}"
+            f"{subtype_totals[subtype]:>{subtype_widths[subtype]},}"
         )
 
     total_text += (
@@ -1680,12 +1695,33 @@ def build_matrix_text(
 # Matrix 전용 Slack 메시지 분할 전송
 # =========================================================
 
+def matrix_report_rows(result):
+    subtypes = result["subtypes"]
+    rows = [["Region/Country", *subtypes, "Total"]]
+    for region in ("Asia", "Europe", "Africa", "America", "Oceania", "Other"):
+        if region in result["region_matrix"]:
+            rows.append([region, *[result["region_matrix"][region].get(st, 0) for st in subtypes], result["region_totals"][region]])
+    for country in sorted(result["countries"], key=lambda c: (-result["country_totals"][c], c)):
+        rows.append([country, *[result["matrix"][country].get(st, 0) for st in subtypes], result["country_totals"][country]])
+    rows.append(["TOTAL", *[result["subtype_totals"][st] for st in subtypes], result["grand_total"]])
+    return rows
+
+
 def post_matrix_message(
     client,
     channel,
     text,
     rows_per_page=20,
+    result=None,
 ):
+
+    if isinstance(client, StatsModalCollector) and "```" in text:
+        info, table, _ = text.split("```", 2)
+        table = "\n".join(line for line in table.strip().splitlines()
+                          if line not in ("[REGION_START]", "[REGION_END]"))
+        client.items.append({"kind": "matrix", "text": info.strip(), "table": table,
+                             "rows": matrix_report_rows(result) if result else []})
+        return
 
     lines = text.split(
         "\n"
@@ -1739,35 +1775,6 @@ def post_matrix_message(
 
     header = table_lines[0]
     separator = table_lines[1]
-
-    # 모달에서는 넓은 Matrix가 줄바꿈되므로 세부질병을 3열씩 나눈다.
-    # 각 표에 국가명과 전체 합계를 반복하여 독립적으로 읽을 수 있게 한다.
-    subtype_count = (len(header) - 20 - 9) // 11
-    if subtype_count > 3:
-        for first in range(0, subtype_count, 3):
-            last = min(first + 3, subtype_count)
-
-            def select_columns(row):
-                return row[:20] + row[20 + first * 11:20 + last * 11] + row[-9:]
-
-            narrow_header = select_columns(header)
-            narrow_lines = []
-            for row in table_lines:
-                if row in ("[REGION_START]", "[REGION_END]"):
-                    narrow_lines.append(row)
-                elif row == separator:
-                    narrow_lines.append("-" * len(narrow_header))
-                else:
-                    narrow_lines.append(select_columns(row))
-            post_matrix_message(
-                client, channel,
-                "\n".join(info_lines + [
-                    f"*세부질병 열 {first + 1}–{last}/{subtype_count} · Total은 전체 세부질병 합계*",
-                    "```", *narrow_lines, "```",
-                ]),
-                rows_per_page=rows_per_page,
-            )
-        return
 
     # =====================================================
     # 권역 행 위치
@@ -2471,7 +2478,7 @@ def build_event_list_modal(params, page):
     }
 
 
-def build_message_modal(text):
+def build_message_modal(text, title="발생 Event 목록"):
     """
     '불러오는 중' / 오류 안내용 간단한 모달
     """
@@ -2481,7 +2488,7 @@ def build_message_modal(text):
 
         "title": {
             "type": "plain_text",
-            "text": "발생 Event 목록",
+            "text": title,
         },
 
         "close": {
@@ -2643,6 +2650,7 @@ def parse_stats_date(raw):
 from uuid import uuid4
 
 _STATS_MODAL_RESULTS = {}
+_STATS_MATRIX_REPORTS = {}
 
 
 class StatsModalCollector:
@@ -2690,11 +2698,34 @@ def _stats_text_chunks(content, limit=2700):
     return chunks
 
 
+def _matrix_table_chunks(table, limit=10000):
+    """Split large tables only between rows, retaining every column and header."""
+    lines = table.splitlines()
+    header = lines[:2]
+    current = list(header)
+    size = sum(len(line) + 1 for line in current)
+    for line in lines[2:]:
+        if len(current) > 2 and size + len(line) + 1 > limit:
+            yield "\n".join(current)
+            current = list(header)
+            size = sum(len(row) + 1 for row in current)
+        current.append(line)
+        size += len(line) + 1
+    yield "\n".join(current)
+
+
 def _stats_modal_pages(items):
     # Slack section text 3000자 제한, modal blocks 100개 제한 고려
     blocks = []
     for item in items:
-        if item["kind"] == "event":
+        if item["kind"] == "matrix":
+            blocks.append({"type": "section", "text": {
+                "type": "mrkdwn", "text": item["text"]}})
+            for table in _matrix_table_chunks(item["table"]):
+                blocks.append({"type": "rich_text", "elements": [{
+                    "type": "rich_text_preformatted", "elements": [{
+                        "type": "text", "text": table}]}]})
+        elif item["kind"] == "event":
             blocks.append({"type": "section", "text": {"type": "mrkdwn",
                 "text": item["label"][:2900]}})
             blocks.append({"type": "actions", "elements": [{
@@ -2725,6 +2756,11 @@ def build_stats_result_modal(key, page=0):
     page = max(0, min(page, len(pages)-1))
     blocks = [{"type": "context", "elements": [{"type": "mrkdwn",
         "text": f"통계 조회 결과 · {page+1}/{len(pages)} 페이지 · 알림 없이 표시"}]}]
+    if key in _STATS_MATRIX_REPORTS:
+        blocks.append({"type": "actions", "elements": [{
+            "type": "button", "action_id": "stats_matrix_download",
+            "text": {"type": "plain_text", "text": "큰 표 파일 DM으로 받기"},
+            "value": key}]})
     blocks.extend(pages[page])
     if len(pages) > 1:
         buttons = []
@@ -2745,11 +2781,48 @@ def build_stats_result_modal(key, page=0):
 def show_stats_result_modal(client, body, collector):
     key = uuid4().hex
     _STATS_MODAL_RESULTS[key] = _stats_modal_pages(collector.items)
+    if any(item["kind"] == "matrix" and item.get("rows") for item in collector.items):
+        _STATS_MATRIX_REPORTS[key] = {"html": build_matrix_report(collector.items),
+                                      "url": None}
     # 오래된 결과의 메모리 사용량 제한
     while len(_STATS_MODAL_RESULTS) > 30:
-        _STATS_MODAL_RESULTS.pop(next(iter(_STATS_MODAL_RESULTS)))
+        expired_key = next(iter(_STATS_MODAL_RESULTS))
+        _STATS_MODAL_RESULTS.pop(expired_key)
+        _STATS_MATRIX_REPORTS.pop(expired_key, None)
     client.views_update(view_id=body["view"]["id"],
                         view=build_stats_result_modal(key))
+
+
+@app.action("stats_matrix_download")
+def handle_stats_matrix_download(ack, body, client):
+    ack()
+    key = body["actions"][0]["value"]
+    report = _STATS_MATRIX_REPORTS.get(key)
+    if report is None:
+        client.views_push(trigger_id=body["trigger_id"],
+            view=build_message_modal("결과가 만료되었습니다. 다시 조회해주세요."))
+        return
+    # Open a progress view before the trigger expires during the file upload.
+    response = client.views_push(trigger_id=body["trigger_id"],
+        view=build_message_modal("큰 표 파일을 준비하고 있습니다.", title="WAHIS Matrix"))
+    view_id = response["view"]["id"]
+    try:
+        if not report["url"]:
+            dm = client.conversations_open(users=body["user"]["id"])["channel"]["id"]
+            uploaded = client.files_upload_v2(
+                channel=dm,
+                content=report["html"], filename="wahis-matrix.html",
+                title="WAHIS Matrix")
+            report["url"] = uploaded["files"][0]["permalink"]
+        message = (f"<{report['url']}|큰 표 파일 받기>\n"
+                   "HTML 파일을 다운로드한 뒤 브라우저로 열면 전체 화면에서 볼 수 있습니다.\n"
+                   "모든 열은 동일한 너비이며, 가로 스크롤을 지원합니다.")
+    except Exception as error:
+        code = getattr(error, "response", {}).get("error", type(error).__name__)
+        print(f"Matrix report upload failed: {code}")
+        message = ("표 파일 업로드에 실패했습니다. "
+                   "Slack 앱의 files:write / im:write 권한과 연결 상태를 확인해주세요.")
+    client.views_update(view_id=view_id, view=build_message_modal(message, title="WAHIS Matrix"))
 
 
 def change_stats_result_page(body, client, delta):
@@ -2913,6 +2986,7 @@ def handle_wahis_stats_search(
         "Africa": "아프리카",
         "America": "아메리카",
         "Oceania": "오세아니아",
+        "Other": "기타",
     }.get(
         region,
         region,
@@ -3090,6 +3164,7 @@ def handle_wahis_stats_search(
                 client=client,
                 channel=body["user"]["id"],
                 text=poultry_message,
+                result=poultry_result,
             )
 
             # ---------------------------------------------
@@ -3112,6 +3187,7 @@ def handle_wahis_stats_search(
                 client=client,
                 channel=body["user"]["id"],
                 text=non_poultry_message,
+                result=non_poultry_result,
             )
 
         # =================================================
@@ -3242,6 +3318,7 @@ def handle_wahis_stats_search(
             client=client,
             channel=body["user"]["id"],
             text=message,
+            result=result,
         )
 
     # =====================================================
