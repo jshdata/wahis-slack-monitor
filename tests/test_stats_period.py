@@ -1,6 +1,6 @@
 import ast
 import unittest
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
@@ -13,12 +13,14 @@ class StatsPeriodTests(unittest.TestCase):
         node = next(n for n in source.body if isinstance(n, ast.FunctionDef)
                     and n.name == 'resolve_stats_period')
         query = Mock(return_value=bounds)
-        namespace = {'get_outbreak_date_bounds': query, 'datetime': datetime}
+        clock = Mock(wraps=datetime)
+        clock.now.side_effect = lambda tz: datetime(2026, 10, 14, 16, tzinfo=timezone.utc).astimezone(tz)
+        namespace = {'get_outbreak_date_bounds': query, 'datetime': clock}
         exec(compile(ast.Module(body=[node], type_ignores=[]), '<period>', 'exec'), namespace)
         return namespace['resolve_stats_period'], query
 
     def test_default_uses_entire_selected_data_range(self):
-        resolve, query = self.resolver(('2014-01-01', '2026-10-15'))
+        resolve, query = self.resolver(('2014-01-01', '2026-10-08'))
         self.assertEqual(resolve('HPAI', None, None, 'Asia', 'Japan'),
                          ('2014-01-01', '2026-10-15'))
         query.assert_called_once_with('HPAI', region='Asia', country='Japan')
@@ -33,7 +35,8 @@ class StatsPeriodTests(unittest.TestCase):
 
     def test_outside_data_and_empty_results_have_valid_bounds(self):
         resolve, _ = self.resolver(('2014-01-01', '2026-10-15'))
-        self.assertEqual(resolve('ASF', '2030-01-01', None), ('2030-01-01', '2030-01-01'))
+        with self.assertRaises(ValueError):
+            resolve('ASF', '2030-01-01', None)
         self.assertEqual(resolve('ASF', None, '2000-01-01'), ('2000-01-01', '2000-01-01'))
         resolve, _ = self.resolver((None, None))
         start, end = resolve('ASF', None, None)

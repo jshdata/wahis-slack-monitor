@@ -1192,13 +1192,13 @@ def build_stats_modal(
 
                     "placeholder": {
                         "type": "plain_text",
-                        "text": "미선택 시 마지막 발생일까지",
+                        "text": "미선택 시 오늘까지 (한국시간)",
                     },
                 },
             },
 
             {"type": "context", "elements": [{"type": "mrkdwn",
-                "text": "날짜를 비워두면 선택한 질병·국가의 전체 기간을 조회합니다. 한쪽만 지정할 수도 있습니다."}]},
+                "text": "날짜를 비워두면 최초 발생일부터 오늘(한국시간)까지 조회합니다. 한쪽만 지정할 수도 있습니다."}]},
 
             # ---------------------------------------------
             # 날짜 직접 입력 (달력보다 우선)
@@ -2652,14 +2652,14 @@ def parse_stats_date(raw):
 
 
 def resolve_stats_period(disease, start_date, end_date, region=None, country=None):
-    if start_date and end_date:
-        return start_date, end_date
-    earliest, latest = get_outbreak_date_bounds(disease, region=region, country=country)
     from zoneinfo import ZoneInfo
-    fallback = start_date or end_date or datetime.now(ZoneInfo("Asia/Seoul")).date().isoformat()
-    start = start_date or min(earliest or fallback, end_date or earliest or fallback)
-    end = end_date or max(latest or fallback, start)
-    return start, end
+    end = end_date or datetime.now(ZoneInfo("Asia/Seoul")).date().isoformat()
+    if start_date:
+        if start_date > end:
+            raise ValueError("종료일은 시작일보다 빠를 수 없습니다.")
+        return start_date, end
+    earliest, _ = get_outbreak_date_bounds(disease, region=region, country=country)
+    return min(earliest or end, end), end
 
 
 # /wahis-stats: 결과는 DM/채널 메시지 대신 모달에서만 표시한다.
@@ -2924,6 +2924,10 @@ def handle_wahis_stats_search(
     if errors:
         ack(response_action="errors", errors=errors)
         return
+
+    if not end_date:
+        from zoneinfo import ZoneInfo
+        end_date = datetime.now(ZoneInfo("Asia/Seoul")).date().isoformat()
 
     if start_date and end_date and start_date > end_date:
 
