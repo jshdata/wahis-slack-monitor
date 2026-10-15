@@ -1084,6 +1084,10 @@ def build_stats_modal(
                     "type": "button",
                     "action_id": "presence_open",
                     "text": {"type": "plain_text", "text": "발생 여부 표 (O)"},
+                }, {
+                    "type": "button",
+                    "action_id": "neighbors_open",
+                    "text": {"type": "plain_text", "text": "주변국 발생현황"},
                 }],
             },
 
@@ -3387,6 +3391,10 @@ register_woah_handlers(app)
 from slack.presence_app import register_presence_handlers
 
 register_presence_handlers(app, _STATS_MATRIX_REPORTS)
+
+from slack.neighbors_app import register_neighbor_handlers
+
+register_neighbor_handlers(app, _STATS_MATRIX_REPORTS)
 
 if __name__ == "__main__":
 
