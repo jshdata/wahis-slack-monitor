@@ -135,6 +135,15 @@ cron-job 호출용 GitHub 토큰(fine-grained):
 
 `python -m slack.query_app`을 Railway에서 상시 실행합니다. 로컬 `.env` 대신 Railway 환경변수를 사용하며, CA 인증서는 파일 대신 `DB_SSL_CA_CONTENT`에 내용을 넣습니다.
 
+Matrix 결과 모달의 **큰 표 열기**는 HTML 표를 브라우저로 바로 엽니다. DM이나 파일 업로드를 사용하지 않습니다.
+
+- Railway 서비스의 **Settings → Networking → Public Networking → Generate Domain**에서 공개 도메인을 생성합니다.
+- 앱은 `PORT` 환경변수의 포트에서 표를 제공하며, 기본 포트는 `8765`입니다. 도메인의 대상 포트를 앱 포트와 맞춥니다.
+- `RAILWAY_PUBLIC_DOMAIN`을 자동으로 사용합니다. 별도 도메인은 `STATS_REPORT_BASE_URL=https://도메인`으로 지정할 수 있습니다.
+- 상태 확인 경로는 `/health`입니다. 로컬에서는 기본적으로 `http://localhost:8765`를 사용합니다.
+- 표 링크는 임의 토큰으로 생성되며 링크를 가진 사람이 열 수 있습니다. 결과는 메모리에 보관되고 1시간, 앱 재시작 또는 최근 결과 30개 초과 시 만료됩니다. 단일 봇 인스턴스에서 실행합니다.
+- 이 기능에는 `files:write`, `im:write` 권한이 필요하지 않습니다.
+
 ## 참고
 
 - DB의 시간은 UTC로 저장되며, Slack 조회 시 KST로 변환합니다.

@@ -5,6 +5,8 @@ from datetime import datetime
 from dotenv import load_dotenv
 
 from slack.stats_report import build_matrix_report
+from slack.stats_report_server import REPORT_TTL_SECONDS, report_url, start_report_server
+import time
 
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
@@ -2757,10 +2759,15 @@ def build_stats_result_modal(key, page=0):
     blocks = [{"type": "context", "elements": [{"type": "mrkdwn",
         "text": f"통계 조회 결과 · {page+1}/{len(pages)} 페이지 · 알림 없이 표시"}]}]
     if key in _STATS_MATRIX_REPORTS:
-        blocks.append({"type": "actions", "elements": [{
-            "type": "button", "action_id": "stats_matrix_download",
-            "text": {"type": "plain_text", "text": "큰 표 파일 DM으로 받기"},
-            "value": key}]})
+        url = report_url(key)
+        if url:
+            blocks.append({"type": "actions", "elements": [{
+                "type": "button", "action_id": "stats_matrix_open",
+                "text": {"type": "plain_text", "text": "큰 표 열기"},
+                "url": url}]})
+        else:
+            blocks.append({"type": "section", "text": {"type": "mrkdwn",
+                "text": "큰 표를 열려면 Railway 공개 도메인 또는 STATS_REPORT_BASE_URL을 설정해주세요."}})
     blocks.extend(pages[page])
     if len(pages) > 1:
         buttons = []
@@ -2783,7 +2790,7 @@ def show_stats_result_modal(client, body, collector):
     _STATS_MODAL_RESULTS[key] = _stats_modal_pages(collector.items)
     if any(item["kind"] == "matrix" and item.get("rows") for item in collector.items):
         _STATS_MATRIX_REPORTS[key] = {"html": build_matrix_report(collector.items),
-                                      "url": None}
+                                      "expires_at": time.time() + REPORT_TTL_SECONDS}
     # 오래된 결과의 메모리 사용량 제한
     while len(_STATS_MODAL_RESULTS) > 30:
         expired_key = next(iter(_STATS_MODAL_RESULTS))
@@ -2793,36 +2800,9 @@ def show_stats_result_modal(client, body, collector):
                         view=build_stats_result_modal(key))
 
 
-@app.action("stats_matrix_download")
-def handle_stats_matrix_download(ack, body, client):
+@app.action("stats_matrix_open")
+def handle_stats_matrix_open(ack):
     ack()
-    key = body["actions"][0]["value"]
-    report = _STATS_MATRIX_REPORTS.get(key)
-    if report is None:
-        client.views_push(trigger_id=body["trigger_id"],
-            view=build_message_modal("결과가 만료되었습니다. 다시 조회해주세요."))
-        return
-    # Open a progress view before the trigger expires during the file upload.
-    response = client.views_push(trigger_id=body["trigger_id"],
-        view=build_message_modal("큰 표 파일을 준비하고 있습니다.", title="WAHIS Matrix"))
-    view_id = response["view"]["id"]
-    try:
-        if not report["url"]:
-            dm = client.conversations_open(users=body["user"]["id"])["channel"]["id"]
-            uploaded = client.files_upload_v2(
-                channel=dm,
-                content=report["html"], filename="wahis-matrix.html",
-                title="WAHIS Matrix")
-            report["url"] = uploaded["files"][0]["permalink"]
-        message = (f"<{report['url']}|큰 표 파일 받기>\n"
-                   "HTML 파일을 다운로드한 뒤 브라우저로 열면 전체 화면에서 볼 수 있습니다.\n"
-                   "모든 열은 동일한 너비이며, 가로 스크롤을 지원합니다.")
-    except Exception as error:
-        code = getattr(error, "response", {}).get("error", type(error).__name__)
-        print(f"Matrix report upload failed: {code}")
-        message = ("표 파일 업로드에 실패했습니다. "
-                   "Slack 앱의 files:write / im:write 권한과 연결 상태를 확인해주세요.")
-    client.views_update(view_id=view_id, view=build_message_modal(message, title="WAHIS Matrix"))
 
 
 def change_stats_result_page(body, client, delta):
@@ -3370,6 +3350,8 @@ if __name__ == "__main__":
     print("Socket Mode 연결을 시작합니다.")
     print("종료하려면 Ctrl + C")
     print("=" * 60)
+
+    start_report_server(_STATS_MATRIX_REPORTS)
 
     handler = SocketModeHandler(
         app,
