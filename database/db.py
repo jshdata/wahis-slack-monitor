@@ -316,7 +316,7 @@ def get_existing_report_ids(report_ids):
 # WAHIS 이벤트 저장
 # =========================================================
 
-def insert_disease_report(event):
+def insert_disease_report(event, notify_slack=True):
     """
     WAHIS 이벤트를 DB에 저장
     """
@@ -336,9 +336,10 @@ def insert_disease_report(event):
             country,
             disease,
             submission_date,
-            slack_event_json
+            slack_event_json,
+            slack_sent
         )
-        VALUES (%s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
 
         ON DUPLICATE KEY UPDATE
             event_id = VALUES(event_id),
@@ -360,7 +361,8 @@ def insert_disease_report(event):
                 event["country"],
                 event["disease"],
                 submission_date,
-                json.dumps(event, ensure_ascii=False, default=str)
+                json.dumps(event, ensure_ascii=False, default=str),
+                int(not notify_slack)
             )
         )
 

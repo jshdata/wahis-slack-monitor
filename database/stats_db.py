@@ -55,6 +55,8 @@ DISEASE_MAP = {
 
     ),
 
+    "BSE": "Bovine spongiform encephalopathy",
+
     "ASF": "African swine fever virus (Inf. with)",
 
     "FMD": "Foot and mouth disease virus (Inf. with)",

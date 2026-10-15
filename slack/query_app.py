@@ -171,6 +171,10 @@ DISEASE_OPTIONS = [
         },
         "value": "LSD",
     },
+    {
+        "text": {"type": "plain_text", "text": "BSE (소해면상뇌증)"},
+        "value": "BSE",
+    },
 ]
 
 # =========================================================
@@ -289,6 +293,9 @@ def get_disease_label(full_name):
         "Lumpy skin disease"
     ):
         return "LSD"
+
+    if full_name.strip() == "Bovine spongiform encephalopathy":
+        return "BSE"
 
     return full_name
 
@@ -973,6 +980,10 @@ STATS_DISEASE_OPTIONS = [
             "text": "LSD",
         },
         "value": "LSD",
+    },
+    {
+        "text": {"type": "plain_text", "text": "BSE (소해면상뇌증)"},
+        "value": "BSE",
     },
 ]
 

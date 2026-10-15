@@ -10,6 +10,7 @@ WOAH(세계동물보건기구) **WAHIS**에 새로 등록되는 동물질병 리
 | ASF | 아프리카돼지열병 |
 | FMD | 구제역 |
 | LSD | 럼피스킨병 |
+| BSE | 소해면상뇌증 |
 
 ## 주요 기능
 
@@ -19,6 +20,14 @@ WOAH(세계동물보건기구) **WAHIS**에 새로 등록되는 동물질병 리
 - **Slack 알림**: 신규 Report 발견 시 Incoming Webhook으로 Block Kit 알림 전송
 - **Slack 조회 (`/wahis`)**: 권역·국가·사육/야생·질병·기간(KST)으로 Report 검색
 - **Slack 통계 (`/wahis-stats`)**: outbreak 발생일 기준 국가별 총 발생건수, 국가 × 세부질병(subtype) Matrix
+
+BSE의 WAHIS 질병 ID는 `89`입니다. 기본 수집 대상에 포함되며, 과거 자료만 추가 적재할 때는 다음 명령을 사용합니다.
+
+```powershell
+python backfill_disease.py --disease BSE
+```
+
+이 명령은 과거 보고서와 상세 정보를 적재하며 Slack 알림을 생성하지 않습니다. 상세 적재가 완료된 보고서는 재실행 시 건너뜁니다.
 
 ## 배포 구조
 

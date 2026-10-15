@@ -18,10 +18,11 @@ DISEASES = {
     "ASF": 55,
     "LSD": 769,
     "FMD": 437,
-    "HPAI_NON_POULTRY": 671
+    "HPAI_NON_POULTRY": 671,
+    "BSE": 89,
 }
 
-def get_events(page_number=0, page_size=10):
+def get_events(page_number=0, page_size=10, disease_codes=None):
     """
     WAHIS에서 특정 페이지의 이벤트 데이터를 가져온다.
 
@@ -30,6 +31,7 @@ def get_events(page_number=0, page_size=10):
     - ASF
     - LSD
     - FMD
+    - BSE
     """
 
     payload = {
@@ -37,8 +39,8 @@ def get_events(page_number=0, page_size=10):
         "reportIds": [],
         "countries": [],
 
-        # HPAI + ASF + LSD + FMD
-        "firstDiseases": list(DISEASES.values()),
+        # HPAI + ASF + LSD + FMD + BSE
+        "firstDiseases": [DISEASES[code] for code in disease_codes] if disease_codes is not None else list(DISEASES.values()),
 
         "secondDiseases": [],
         "animalTypes": [],
@@ -87,6 +89,7 @@ def get_latest_events(page_count=3, page_size=10):
     - ASF
     - LSD
     - FMD
+    - BSE
     """
 
     all_events = []
@@ -139,7 +142,7 @@ def get_latest_events(page_count=3, page_size=10):
 def get_all_events(page_size=10):
     """
     초기 적재용:
-    HPAI + ASF + LSD + FMD의
+    HPAI + ASF + LSD + FMD + BSE의
     WAHIS 전체 데이터를 마지막 페이지까지 수집한다.
 
     Slack 알림용이 아니라
@@ -225,7 +228,7 @@ def get_all_events(page_size=10):
 if __name__ == "__main__":
 
     print("=" * 50)
-    print("WAHIS 4대 질병 API 테스트")
+    print("WAHIS 질병 API 테스트")
     print("=" * 50)
 
     print("모니터링 대상:")

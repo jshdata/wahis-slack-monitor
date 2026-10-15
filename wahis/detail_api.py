@@ -6,7 +6,7 @@ BASE_URL = (
 )
 
 
-def get_report_detail(report_id):
+def get_report_detail(report_id, session=None):
     """
     WAHIS 특정 report_id의 상세정보를 가져온다.
     """
@@ -20,7 +20,7 @@ def get_report_detail(report_id):
         "Accept": "application/json"
     }
 
-    response = requests.get(
+    response = (session or requests).get(
         url,
         headers=headers,
         timeout=30

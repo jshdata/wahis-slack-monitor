@@ -30,6 +30,8 @@ DISEASE_MAP = {
         ),
     ],
 
+    "BSE": ["Bovine spongiform encephalopathy"],
+
     "ASF": [
         "African swine fever virus (Inf. with)"
     ],
