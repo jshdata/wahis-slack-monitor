@@ -2,6 +2,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from database.db import get_connection
+from database.regions import region_filter
 
 
 # =========================================================
@@ -162,7 +163,8 @@ def get_countries(region=None):
         Asia
         Europe
         Africa
-        Other  -> North America + South America + Oceania
+        America -> North America + South America
+        Oceania
     """
 
     conn = None
@@ -199,13 +201,9 @@ def get_countries(region=None):
 
             else:
 
-                sql += """
-                    AND region = %s
-                """
-
-                params.append(
-                    region
-                )
+                condition, region_params = region_filter(region, "region")
+                sql += f" AND {condition}"
+                params.extend(region_params)
 
         sql += """
             ORDER BY country
@@ -253,7 +251,7 @@ def search_reports(
     Parameters
     ----------
     region : str | None
-        Asia / Europe / Africa / Other
+        Asia / Europe / Africa / America / Oceania
 
     country : str | None
         WAHIS DB에 저장된 국가명
@@ -358,13 +356,9 @@ def search_reports(
 
             else:
 
-                sql += """
-                    AND cr.region = %s
-                """
-
-                params.append(
-                    region
-                )
+                condition, region_params = region_filter(region, "cr.region")
+                sql += f" AND {condition}"
+                params.extend(region_params)
 
         # -------------------------------------------------
         # 국가

@@ -1,6 +1,7 @@
 # database/stats_db.py
 
 from database.db import get_connection
+from database.regions import region_filter
 
 # =========================================================
 
@@ -174,17 +175,9 @@ def get_outbreak_stats(
 
             if region and not country:
 
-                conditions.append(
-
-                    "cr.region = %s"
-
-                )
-
-                params.append(
-
-                    region
-
-                )
+                condition, region_params = region_filter(region)
+                conditions.append(condition)
+                params.extend(region_params)
 
             # ---------------------------------------------
 
@@ -512,17 +505,9 @@ def get_outbreak_duration_stats(
 
     if region and not country:
 
-        conditions.append(
-
-            "cr.region = %s"
-
-        )
-
-        params.append(
-
-            region
-
-        )
+        condition, region_params = region_filter(region)
+        conditions.append(condition)
+        params.extend(region_params)
 
     if country:
 
@@ -852,17 +837,9 @@ def get_outbreak_events(
 
     if region and not country:
 
-        conditions.append(
-
-            "cr.region = %s"
-
-        )
-
-        params.append(
-
-            region
-
-        )
+        condition, region_params = region_filter(region)
+        conditions.append(condition)
+        params.extend(region_params)
 
     if country:
 

@@ -87,9 +87,16 @@ REGION_OPTIONS = [
     {
         "text": {
             "type": "plain_text",
-            "text": "기타",
+            "text": "아메리카",
         },
-        "value": "Other",
+        "value": "America",
+    },
+    {
+        "text": {
+            "type": "plain_text",
+            "text": "오세아니아",
+        },
+        "value": "Oceania",
     },
 ]
 
@@ -169,7 +176,8 @@ def build_country_options(region=None):
         Asia
         Europe
         Africa
-        Other
+        America
+        Oceania
     """
 
     # 권역 전체일 때는 국가도 전체만 표시
@@ -755,7 +763,8 @@ def handle_wahis_search(
         "Asia": "아시아",
         "Europe": "유럽",
         "Africa": "아프리카",
-        "Other": "기타",
+        "America": "아메리카",
+        "Oceania": "오세아니아",
     }.get(
         region,
         region,
@@ -2902,7 +2911,8 @@ def handle_wahis_stats_search(
         "Asia": "아시아",
         "Europe": "유럽",
         "Africa": "아프리카",
-        "Other": "기타",
+        "America": "아메리카",
+        "Oceania": "오세아니아",
     }.get(
         region,
         region,
