@@ -1034,6 +1034,16 @@ def build_stats_modal(
             },
 
             {
+                "type": "actions",
+                "elements": [{
+                    "type": "button",
+                    "action_id": "woah_docs_open",
+                    "text": {"type": "plain_text", "text": "WOAH 자체 청정 선언 PDF 보기"},
+                    "value": "HPAI",
+                }],
+            },
+
+            {
                 "type": "divider",
             },
 
@@ -3261,6 +3271,10 @@ def handle_wahis_stats_search(
 # =========================================================
 # Socket Mode
 # =========================================================
+from slack.woah_docs import register_woah_handlers
+
+register_woah_handlers(app)
+
 if __name__ == "__main__":
 
     print("=" * 60)
