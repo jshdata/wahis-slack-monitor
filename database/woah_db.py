@@ -142,6 +142,20 @@ def latest_run(disease):
         return cur.fetchone()
 
 
+def list_declaration_countries(disease=None):
+    """Metadata only; join with explicit collation for the existing MySQL tables."""
+    with connection() as conn, conn.cursor(pymysql.cursors.DictCursor) as cur:
+        cur.execute("""SELECT DISTINCT d.disease,d.country,d.published_date,
+            d.declaration_status,cr.region
+            FROM woah_documents d LEFT JOIN country_regions cr
+              ON (CASE WHEN TRIM(d.country) IN ('Türkiye','Turkey')
+                       THEN 'Türkiye (Rep. of)' ELSE TRIM(d.country) END) COLLATE utf8mb4_unicode_ci
+               = TRIM(cr.country) COLLATE utf8mb4_unicode_ci
+            WHERE (%s IS NULL OR d.disease=%s)
+            ORDER BY d.disease,d.country,d.published_date""", (disease, disease))
+        return cur.fetchall()
+
+
 def get_document(document_id, include_pdf=False):
     columns = ',v.pdf_data' if include_pdf else ''
     with connection() as conn, conn.cursor(pymysql.cursors.DictCursor) as cur:

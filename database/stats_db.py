@@ -3,6 +3,32 @@
 from database.db import get_connection
 from database.regions import KNOWN_REGIONS, region_filter
 
+
+def get_outbreak_date_bounds(disease_code, region=None, country=None):
+    """Resolve omitted dates from the selected disease/country's stored outbreaks."""
+    codes = ('HPAI', 'HPAI_NON_POULTRY') if disease_code == 'HPAI' else (disease_code,)
+    names = [DISEASE_MAP[code] for code in codes]
+    conditions = [f"dr.disease IN ({', '.join(['%s'] * len(names))})"]
+    params = list(names)
+    if country:
+        conditions.append('dr.country = %s')
+        params.append(country)
+    elif region:
+        condition, values = region_filter(region)
+        conditions.append(condition)
+        params.extend(values)
+    conn = get_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(f"""SELECT DATE(MIN(o.start_date)), DATE(MAX(o.start_date))
+                FROM outbreaks o JOIN disease_reports dr ON dr.event_id=o.event_id
+                LEFT JOIN country_regions cr ON dr.country=cr.country
+                WHERE {' AND '.join(conditions)}""", params)
+            row = cursor.fetchone()
+            return tuple(value.isoformat() if value else None for value in row)
+    finally:
+        conn.close()
+
 # =========================================================
 
 # 질병 이름 매핑

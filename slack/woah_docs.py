@@ -1,6 +1,7 @@
 """WOAH document modal. All responses stay in the requesting user's modal."""
 import json
 import logging
+from datetime import date
 from concurrent.futures import ThreadPoolExecutor
 from threading import BoundedSemaphore
 
@@ -37,18 +38,53 @@ def loading():
     return modal([section('문서를 확인하고 있습니다.')])
 
 
-def list_view(disease='HPAI', page=0):
-    if disease not in DISEASES:
+def filtered_documents(docs, start_date=None, end_date=None):
+    start = date.fromisoformat(start_date) if start_date else None
+    end = date.fromisoformat(end_date) if end_date else None
+    if start and end and start > end:
+        raise ValueError('시작 날짜는 종료 날짜보다 늦을 수 없습니다.')
+    if not start and not end:
+        return docs, 0
+    result, unknown = [], 0
+    for doc in docs:
+        try:
+            published = date.fromisoformat(str(doc.get('published_date') or ''))
+        except ValueError:
+            unknown += 1
+            continue
+        if (not start or published >= start) and (not end or published <= end):
+            result.append(doc)
+    return result, unknown
+
+
+def list_view(disease='HPAI', page=0, start_date=None, end_date=None):
+    if disease not in DISEASES and disease != 'all':
         raise ValueError('지원하지 않는 질병입니다.')
-    docs = woah_db.list_documents(disease)
-    run = woah_db.latest_run(disease)
+    docs, unknown = filtered_documents(woah_db.list_documents(None if disease == 'all' else disease), start_date, end_date)
+    run = woah_db.latest_run(disease) if disease != 'all' else None
     pages = max(1, (len(docs) + PAGE_SIZE - 1) // PAGE_SIZE)
     page = max(0, min(page, pages - 1))
     options = [{'text': {'type': 'plain_text', 'text': code}, 'value': code} for code in DISEASES]
+    options.insert(0, {'text': {'type': 'plain_text', 'text': '모든 질병'}, 'value': 'all'})
+    meta = {'d': disease, 'p': page, 's': start_date, 'e': end_date}
     blocks = [section('*국가가 제출한 자체 청정 선언입니다. WOAH 공식 인정과 구분됩니다.*'),
               {'type': 'actions', 'elements': [{'type': 'static_select',
                'action_id': 'woah_docs_disease', 'options': options,
                'initial_option': next(option for option in options if option['value'] == disease)}]}]
+    for block_id, label, selected in (('woah_start', '시작 날짜 (비워두면 전체)', start_date),
+                                      ('woah_end', '종료 날짜 (비워두면 전체)', end_date)):
+        element = {'type': 'datepicker', 'action_id': 'woah_docs_date',
+                   'placeholder': {'type': 'plain_text', 'text': label}}
+        if selected:
+            element['initial_date'] = selected
+        blocks.append({'type': 'actions', 'block_id': block_id, 'elements': [element]})
+    blocks.append({'type': 'actions', 'elements': [
+        button('날짜 적용 / PDF 조회', 'woah_docs_filter', json.dumps(meta)),
+        button('권역별 선언 국가 표', 'woah_docs_countries', json.dumps(meta)),
+        button('전체 기간으로 초기화', 'woah_docs_reset', json.dumps(meta))]})
+    blocks.append(section(f'게시일 기준 · {start_date or "전체"} ~ {end_date or "전체"}'))
+    if unknown:
+        blocks.append(section(f'게시일을 확인할 수 없는 문서 {unknown}건은 날짜 조건에서 제외했습니다.'))
     if run:
         blocks.append(section(f'마지막 수집: {run["checked_at"]} UTC · 상태: {escape(run["status"])} · '
                               f'발견 {run["found_count"]}건 / 저장 {run["saved_count"]}건 / 실패 {run["failed_count"]}건'))
@@ -57,7 +93,7 @@ def list_view(disease='HPAI', page=0):
                                   '질병이 없다는 의미는 아닙니다. 기존 보관 문서는 유지됩니다.'))
         elif run['status'] == 'COLLECTION_FAILED':
             blocks.append(section('최신 목록 수집에 실패했습니다. 아래는 기존에 보관한 자료입니다.'))
-    else:
+    elif disease != 'all':
         blocks.append(section('아직 수집 이력이 없습니다. 서버에서 woah_main.py를 실행해 주세요.'))
     blocks.append(section(f'*{disease} · 보관 문서 {len(docs)}건 · {page + 1}/{pages} 페이지*'))
     for doc in docs[page * PAGE_SIZE:(page + 1) * PAGE_SIZE]:
@@ -71,7 +107,7 @@ def list_view(disease='HPAI', page=0):
         elements = []
         if doc['latest_version_id']:
             elements.append(button('ChatGPT로 요약하기', 'woah_docs_chatgpt',
-                                   json.dumps({'id': doc['id'], 'd': disease, 'p': page})))
+                                   json.dumps({'id': doc['id'], **meta})))
         if doc['pdf_url']:
             try:
                 validate_pdf_url(doc['pdf_url'])
@@ -84,15 +120,61 @@ def list_view(disease='HPAI', page=0):
         blocks.append({'type': 'divider'})
     nav = []
     if page:
-        nav.append(button('이전', 'woah_docs_prev', json.dumps({'d': disease, 'p': page - 1})))
+        nav.append(button('이전', 'woah_docs_prev', json.dumps({**meta, 'p': page - 1})))
     if page + 1 < pages:
-        nav.append(button('다음', 'woah_docs_next', json.dumps({'d': disease, 'p': page + 1})))
+        nav.append(button('다음', 'woah_docs_next', json.dumps({**meta, 'p': page + 1})))
     if nav:
         blocks.append({'type': 'actions', 'elements': nav})
-    return modal(blocks, {'d': disease, 'p': page})
+    return modal(blocks, meta)
 
 
-def chatgpt_view(document_id, disease, page):
+def countries_view(disease='HPAI', start_date=None, end_date=None):
+    if disease not in DISEASES and disease != 'all':
+        raise ValueError('지원하지 않는 질병입니다.')
+    docs, unknown = filtered_documents(
+        woah_db.list_declaration_countries(None if disease == 'all' else disease), start_date, end_date)
+    regions = [('Asia', '아시아'), ('Europe', '유럽'), ('Africa', '아프리카'),
+               ('America', '아메리카'), ('Oceania', '오세아니아'), ('Other', '기타')]
+    grouped = {code: {region: set() for region, _ in regions} for code in
+               (DISEASES if disease == 'all' else [disease])}
+    for doc in docs:
+        region = doc.get('region')
+        if region in ('North America', 'South America'):
+            region = 'America'
+        if region not in grouped[doc['disease']]:
+            region = 'Other'
+        grouped[doc['disease']][region].add(doc['country'].strip())
+    blocks = [section('*질병별 · 권역별 자체 청정 선언 국가*\n'
+                      '보관된 자체 선언 문서의 국가 목록입니다. 지역·구획 선언도 포함하며 현재 국가 전체의 청정 상태나 WOAH 공식 인정을 뜻하지 않습니다.'),
+              section(f'*게시일:* {start_date or "전체"} ~ {end_date or "전체"}\n'
+                      '*권역 | 선언 국가 (중복 제외)*')]
+    if unknown:
+        blocks.append(section(f'게시일 미상 문서 {unknown}건은 날짜 조건에서 제외했습니다.'))
+    def table_row(region_label, names):
+        return {'type': 'section', 'fields': [
+            {'type': 'mrkdwn', 'text': f'*{region_label}*'},
+            {'type': 'mrkdwn', 'text': names}]}
+    for code, countries in grouped.items():
+        blocks.append(section(f'*{code}*'))
+        blocks.append(table_row('권역', '*선언 국가*'))
+        for region, label in regions:
+            names = sorted(countries[region])
+            # Start a new block between country names, never truncate the list.
+            text = ''
+            for name in names or ['해당 없음']:
+                entry = escape(name)
+                if len(text) + len(entry) + 2 > 1800:
+                    blocks.append(table_row(label, text))
+                    text = ''
+                text += (', ' if text else '') + entry
+            blocks.append(table_row(label, text))
+        blocks.append({'type': 'divider'})
+    meta = {'d': disease, 'p': 0, 's': start_date, 'e': end_date}
+    blocks.append({'type': 'actions', 'elements': [button('PDF 목록으로', 'woah_docs_back', json.dumps(meta))]})
+    return modal(blocks, meta)
+
+
+def chatgpt_view(document_id, disease, page, start_date=None, end_date=None):
     from woah.chatgpt import SUMMARY_PROMPT
     doc = woah_db.get_document(document_id)
     if not doc or not doc['latest_version_id']:
@@ -118,7 +200,7 @@ def chatgpt_view(document_id, disease, page):
                      'text': {'type': 'plain_text', 'text': 'ChatGPT 열기'}, 'url': 'https://chatgpt.com/'})
     blocks.append({'type': 'actions', 'elements': elements})
     blocks.append({'type': 'actions', 'elements': [button('문서 목록으로', 'woah_docs_back',
-                   json.dumps({'d': disease, 'p': page}))]})
+                   json.dumps({'d': disease, 'p': page, 's': start_date, 'e': end_date}))]})
     return modal(blocks)
 
 
@@ -148,6 +230,40 @@ def submit(client, view_id, task, metadata=None):
 
 
 def register_woah_handlers(app):
+    def selected_filters(body):
+        meta = json.loads(body['view'].get('private_metadata') or '{}')
+        values = body['view'].get('state', {}).get('values', {})
+        disease = meta.get('d', 'HPAI')
+        for block in values.values():
+            selected = block.get('woah_docs_disease', {}).get('selected_option')
+            if selected:
+                disease = selected['value']
+        start = values.get('woah_start', {}).get('woah_docs_date', {}).get('selected_date', meta.get('s'))
+        end = values.get('woah_end', {}).get('woah_docs_date', {}).get('selected_date', meta.get('e'))
+        return disease, start, end
+
+    @app.action('woah_docs_date')
+    def acknowledge_date(ack):
+        ack()
+
+    @app.action('woah_docs_reset')
+    def reset_dates(ack, body, client):
+        ack()
+        disease, _, _ = selected_filters(body)
+        client.views_update(view_id=body['view']['id'], view=loading())
+        submit(client, body['view']['id'], lambda: list_view(disease))
+
+    @app.action('woah_docs_filter')
+    @app.action('woah_docs_countries')
+    def apply_filters(ack, body, client):
+        ack()
+        disease, start, end = selected_filters(body)
+        target = countries_view if body['actions'][0]['action_id'] == 'woah_docs_countries' else list_view
+        client.views_update(view_id=body['view']['id'], view=loading())
+        submit(client, body['view']['id'],
+               lambda: target(disease=disease, start_date=start, end_date=end),
+               {'d': disease, 'p': 0, 's': start, 'e': end})
+
     @app.action('woah_docs_original')
     @app.action('woah_docs_chatgpt_link')
     def acknowledge_original_link(ack):
@@ -176,14 +292,16 @@ def register_woah_handlers(app):
     def change_disease(ack, body, client):
         ack()
         disease = body['actions'][0]['selected_option']['value']
+        _, start, end = selected_filters(body)
         client.views_update(view_id=body['view']['id'], view=loading())
-        submit(client, body['view']['id'], lambda: list_view(disease))
+        submit(client, body['view']['id'], lambda: list_view(disease, start_date=start, end_date=end),
+               {'d': disease, 'p': 0, 's': start, 'e': end})
 
     def navigate(ack, body, client):
         ack()
         meta = json.loads(body['actions'][0]['value'])
         client.views_update(view_id=body['view']['id'], view=loading())
-        submit(client, body['view']['id'], lambda: list_view(meta['d'], int(meta['p'])))
+        submit(client, body['view']['id'], lambda: list_view(meta['d'], int(meta['p']), meta.get('s'), meta.get('e')))
     for action in ('woah_docs_prev', 'woah_docs_next', 'woah_docs_back'):
         app.action(action)(navigate)
 
@@ -194,5 +312,5 @@ def register_woah_handlers(app):
         meta = json.loads(body['actions'][0]['value'])
         client.views_update(view_id=body['view']['id'], view=loading())
         submit(client, body['view']['id'],
-               lambda: chatgpt_view(int(meta['id']), meta['d'], int(meta['p'])),
-               {'d': meta['d'], 'p': meta['p']})
+               lambda: chatgpt_view(int(meta['id']), meta['d'], int(meta['p']), meta.get('s'), meta.get('e')),
+               {k: v for k, v in meta.items() if k != 'id'})

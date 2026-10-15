@@ -21,6 +21,7 @@ from database.query_db import (
 # /wahis-stats 통계 기능
 from database.stats_db import (
     get_outbreak_stats,
+    get_outbreak_date_bounds,
     get_hpai_outbreak_stats,
     get_outbreak_duration_stats,
     get_outbreak_events,
@@ -1167,7 +1168,7 @@ def build_stats_modal(
 
                     "placeholder": {
                         "type": "plain_text",
-                        "text": "시작일 선택",
+                        "text": "미선택 시 최초 발생일부터",
                     },
                 },
             },
@@ -1191,10 +1192,13 @@ def build_stats_modal(
 
                     "placeholder": {
                         "type": "plain_text",
-                        "text": "종료일 선택",
+                        "text": "미선택 시 마지막 발생일까지",
                     },
                 },
             },
+
+            {"type": "context", "elements": [{"type": "mrkdwn",
+                "text": "날짜를 비워두면 선택한 질병·국가의 전체 기간을 조회합니다. 한쪽만 지정할 수도 있습니다."}]},
 
             # ---------------------------------------------
             # 날짜 직접 입력 (달력보다 우선)
@@ -2647,6 +2651,17 @@ def parse_stats_date(raw):
     return datetime.strptime(raw, "%Y-%m-%d").date().isoformat()
 
 
+def resolve_stats_period(disease, start_date, end_date, region=None, country=None):
+    if start_date and end_date:
+        return start_date, end_date
+    earliest, latest = get_outbreak_date_bounds(disease, region=region, country=country)
+    from zoneinfo import ZoneInfo
+    fallback = start_date or end_date or datetime.now(ZoneInfo("Asia/Seoul")).date().isoformat()
+    start = start_date or min(earliest or fallback, end_date or earliest or fallback)
+    end = end_date or max(latest or fallback, start)
+    return start, end
+
+
 # /wahis-stats: 결과는 DM/채널 메시지 대신 모달에서만 표시한다.
 # 페이지별 내용은 프로세스 메모리에 보관한다(재시작 시 만료).
 from uuid import uuid4
@@ -2897,7 +2912,6 @@ def handle_wahis_stats_search(
         (end_date, "stats_end_text_block" if end_text else "stats_end_date_block", "종료일"),
     ]:
         if not raw:
-            errors[block_id] = f"{label}을 선택하거나 입력해주세요."
             continue
         try:
             parsed = parse_stats_date(raw)
@@ -2911,7 +2925,7 @@ def handle_wahis_stats_search(
         ack(response_action="errors", errors=errors)
         return
 
-    if start_date > end_date:
+    if start_date and end_date and start_date > end_date:
 
         ack(
             response_action="errors",
@@ -2954,6 +2968,15 @@ def handle_wahis_stats_search(
         if country == "all"
         else country
     )
+
+    try:
+        start_date, end_date = resolve_stats_period(
+            disease, start_date, end_date, region=db_region, country=db_country)
+    except Exception as error:
+        print(f"Stats date bounds query failed: {type(error).__name__}")
+        slack_client.views_update(view_id=body["view"]["id"],
+            view=build_message_modal("조회 기간을 확인하지 못했습니다. DB 연결을 확인해주세요.", title="WAHIS 통계 조회"))
+        return
 
     # =====================================================
     # 표시용 조건
