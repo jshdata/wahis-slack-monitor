@@ -1080,6 +1080,10 @@ def build_stats_modal(
                     "action_id": "woah_docs_open",
                     "text": {"type": "plain_text", "text": "WOAH 자체 청정 선언 PDF 보기"},
                     "value": "HPAI",
+                }, {
+                    "type": "button",
+                    "action_id": "presence_open",
+                    "text": {"type": "plain_text", "text": "발생 여부 표 (O)"},
                 }],
             },
 
@@ -3379,6 +3383,10 @@ def handle_wahis_stats_search(
 from slack.woah_docs import register_woah_handlers
 
 register_woah_handlers(app)
+
+from slack.presence_app import register_presence_handlers
+
+register_presence_handlers(app, _STATS_MATRIX_REPORTS)
 
 if __name__ == "__main__":
 
