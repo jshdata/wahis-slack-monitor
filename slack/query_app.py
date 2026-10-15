@@ -1721,6 +1721,35 @@ def post_matrix_message(
     header = table_lines[0]
     separator = table_lines[1]
 
+    # 모달에서는 넓은 Matrix가 줄바꿈되므로 세부질병을 3열씩 나눈다.
+    # 각 표에 국가명과 전체 합계를 반복하여 독립적으로 읽을 수 있게 한다.
+    subtype_count = (len(header) - 20 - 9) // 11
+    if subtype_count > 3:
+        for first in range(0, subtype_count, 3):
+            last = min(first + 3, subtype_count)
+
+            def select_columns(row):
+                return row[:20] + row[20 + first * 11:20 + last * 11] + row[-9:]
+
+            narrow_header = select_columns(header)
+            narrow_lines = []
+            for row in table_lines:
+                if row in ("[REGION_START]", "[REGION_END]"):
+                    narrow_lines.append(row)
+                elif row == separator:
+                    narrow_lines.append("-" * len(narrow_header))
+                else:
+                    narrow_lines.append(select_columns(row))
+            post_matrix_message(
+                client, channel,
+                "\n".join(info_lines + [
+                    f"*세부질병 열 {first + 1}–{last}/{subtype_count} · Total은 전체 세부질병 합계*",
+                    "```", *narrow_lines, "```",
+                ]),
+                rows_per_page=rows_per_page,
+            )
+        return
+
     # =====================================================
     # 권역 행 위치
     # =====================================================
@@ -1956,6 +1985,10 @@ def post_long_message(
     max_length=3500,
 ):
 
+    # 모달에서 다시 분할되지 않도록 section 제한보다 작게 생성한다.
+    # 다음 결과에도 열 제목과 완결된 코드블록이 함께 전달된다.
+    max_length = min(max_length, 2700)
+
     # ---------------------------------------------
     # 짧으면 바로 전송
     # ---------------------------------------------
@@ -1973,41 +2006,20 @@ def post_long_message(
     # 줄 단위 분할
     # ---------------------------------------------
 
-    lines = text.split("\n")
-
-    chunks = []
-    current = []
-
-    for line in lines:
-
-        candidate = "\n".join(
-            current + [line]
-        )
-
-        if (
-            current
-            and len(candidate) > max_length
-        ):
-
-            chunks.append(
-                "\n".join(current)
-            )
-
-            current = [line]
-
-        else:
-
-            current.append(line)
-
-    if current:
-
-        chunks.append(
-            "\n".join(current)
-        )
-
-    # ---------------------------------------------
-    # 여러 메시지 전송
-    # ---------------------------------------------
+    table_header = []
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if line.strip() == "```" and index + 2 < len(lines):
+            separator = lines[index + 2]
+            if separator and set(separator) == {"-"}:
+                table_header = lines[index + 1:index + 3]
+            break
+    header_size = sum(len(line) + 1 for line in table_header)
+    chunks = _stats_text_chunks(text, limit=max_length - header_size - 80)
+    if table_header:
+        for index in range(1, len(chunks)):
+            if chunks[index].startswith("```\n"):
+                chunks[index] = "\n".join(["```", *table_header]) + chunks[index][3:]
 
     for index, chunk in enumerate(
         chunks,
@@ -2632,6 +2644,33 @@ class StatsModalCollector:
         return {"ok": True}
 
 
+def _stats_text_chunks(content, limit=2700):
+    """행 경계로 분할하고 각 구간에서 코드블록을 다시 연다."""
+    chunks, lines, size = [], [], 0
+    in_code = False
+    for line in content.splitlines():
+        # 닫는 코드 fence와 개행에 필요한 공간을 남긴다.
+        if lines and size + len(line) + 5 > limit:
+            chunks.append("\n".join(lines + (["```"] if in_code else [])))
+            lines = ["```"] if in_code else []
+            size = 4 if in_code else 0
+        # 통계 표는 짧은 행으로 구성된다. 긴 설명도 Slack 제한 내로 나눈다.
+        while len(line) > limit - size - 5:
+            take = limit - size - 5
+            lines.append(line[:take])
+            chunks.append("\n".join(lines + (["```"] if in_code else [])))
+            line = line[take:]
+            lines = ["```"] if in_code else []
+            size = 4 if in_code else 0
+        lines.append(line)
+        size += len(line) + 1
+        if line.strip() == "```":
+            in_code = not in_code
+    if lines:
+        chunks.append("\n".join(lines + (["```"] if in_code else [])))
+    return chunks
+
+
 def _stats_modal_pages(items):
     # Slack section text 3000자 제한, modal blocks 100개 제한 고려
     blocks = []
@@ -2645,23 +2684,8 @@ def _stats_modal_pages(items):
                 "value": item["value"]}]})
         else:
             content = item["text"]
-            # 긴 표는 코드블록 형식을 유지하면서 안전하게 분할한다.
-            if len(content) <= 2900:
-                chunks = [content]
-            else:
-                chunks, chunk = [], ""
-                for line in content.splitlines(keepends=True):
-                    if len(chunk) + len(line) > 2700 and chunk:
-                        chunks.append(chunk)
-                        chunk = ""
-                    while len(line) > 2700:
-                        chunks.append(line[:2700]); line = line[2700:]
-                    chunk += line
-                if chunk: chunks.append(chunk)
+            chunks = _stats_text_chunks(content)
             for chunk in chunks:
-                # 원래 결과가 코드블록을 포함하는 경우 Slack 포맷을 유지
-                if chunk.count("```") % 2:
-                    chunk += "\n```"
                 blocks.append({"type": "section", "text": {
                     "type": "mrkdwn", "text": chunk or "(결과 없음)"}})
         blocks.append({"type": "divider"})
