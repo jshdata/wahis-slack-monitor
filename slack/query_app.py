@@ -2095,6 +2095,35 @@ def post_long_message(
 # 국가별 발생 기간(일) 메시지
 # =========================================================
 
+def build_yearly_duration_messages(
+    disease_code, disease, region_label, country_label,
+    start_date, end_date, gap_days, region=None, country=None,
+):
+    """Calculate observation periods separately for each calendar year."""
+    first_year = datetime.fromisoformat(start_date).year
+    last_year = datetime.fromisoformat(end_date).year
+    for year in range(first_year, last_year + 1):
+        year_start = max(start_date, f"{year:04d}-01-01")
+        year_end = min(end_date, f"{year:04d}-12-31")
+        rows = get_outbreak_duration_stats(
+            disease_code=disease_code,
+            start_date=year_start,
+            end_date=year_end,
+            region=region,
+            country=country,
+            gap_days=gap_days,
+        )
+        yield from build_duration_messages(
+            rows=rows,
+            disease=disease,
+            region_label=region_label,
+            country_label=country_label,
+            start_date=year_start,
+            end_date=year_end,
+            gap_days=gap_days,
+        )
+
+
 def build_duration_messages(
     rows,
     disease,
@@ -3058,23 +3087,16 @@ def handle_wahis_stats_search(
 
                 gap_days = get_gap_days(code)
 
-                rows = get_outbreak_duration_stats(
+                for message in build_yearly_duration_messages(
                     disease_code=code,
-                    start_date=start_date,
-                    end_date=end_date,
-                    region=db_region,
-                    country=db_country,
-                    gap_days=gap_days,
-                )
-
-                for message in build_duration_messages(
-                    rows=rows,
                     disease=label,
                     region_label=region_label,
                     country_label=country_label,
                     start_date=start_date,
                     end_date=end_date,
                     gap_days=gap_days,
+                    region=db_region,
+                    country=db_country,
                 ):
 
                     client.chat_postMessage(
