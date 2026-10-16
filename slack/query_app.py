@@ -1,6 +1,9 @@
 import os
 import json
 from datetime import datetime
+from database.filters import selection_values, selection_value, selection_label
+from slack.multi_filters import multi_filter_view, selected_value, selected_values
+from slack.filter_state import encode_filters, decode_filters
 
 from dotenv import load_dotenv
 
@@ -243,6 +246,23 @@ def build_country_select_options(options):
 
 # =========================================================
 # 질병 표시명
+@app.options('country_select')
+@app.options('stats_country_select')
+def suggest_countries(ack, body):
+    values = body.get('view', {}).get('state', {}).get('values', {})
+    prefix = 'stats_' if body.get('action_id', '').startswith('stats_') else ''
+    region = selected_value(values.get(prefix + 'region_block', {}).get(prefix + 'region_select', {}))
+    query = (body.get('value') or '').casefold()
+    try:
+        countries = get_countries(None if region == 'all' else region)
+        options = [{'text': {'type': 'plain_text', 'text': country[:75]}, 'value': country}
+                   for country in countries if query in country.casefold()][:100]
+        ack(options=options)
+    except Exception as error:
+        print(f'Country suggestions failed: {type(error).__name__}')
+        ack(options=[])
+
+
 # =========================================================
 def get_disease_label(full_name):
 
@@ -321,7 +341,7 @@ def build_search_modal(
         REGION_OPTIONS[0],
     )
 
-    return {
+    return multi_filter_view({
         "type": "modal",
 
         "callback_id": "wahis_search_modal",
@@ -550,7 +570,7 @@ def build_search_modal(
                 },
 
         ],
-    }
+    })
 
 
 # =========================================================
@@ -583,44 +603,6 @@ def handle_region_change(
 
     ack()
 
-    selected_region = (
-        body["actions"][0]
-        ["selected_option"]
-        ["value"]
-    )
-
-    # ---------------------------------------------
-    # 권역에 맞는 국가 목록
-    # ---------------------------------------------
-    if selected_region == "all":
-
-        country_options = (
-            build_country_options()
-        )
-
-    else:
-
-        country_options = (
-            build_country_options(
-                selected_region
-            )
-        )
-
-    # ---------------------------------------------
-    # Modal 갱신
-    # ---------------------------------------------
-    client.views_update(
-        view_id=body["view"]["id"],
-
-        hash=body["view"]["hash"],
-
-        view=build_search_modal(
-            selected_region=selected_region,
-            country_options=country_options,
-            source_channel=body["view"].get("private_metadata", ""),
-        ),
-    )
-
 
 # =========================================================
 # 조회하기
@@ -640,33 +622,13 @@ def handle_wahis_search(
     # ---------------------------------------------
     # Slack 선택값
     # ---------------------------------------------
-    region = (
-        values["region_block"]
-        ["region_select"]
-        ["selected_option"]
-        ["value"]
-    )
+    region = selected_value(values["region_block"]["region_select"])
 
-    country = (
-        values["country_block"]
-        ["country_select"]
-        ["selected_option"]
-        ["value"]
-    )
+    country = selected_value(values["country_block"]["country_select"])
 
-    animal = (
-        values["animal_block"]
-        ["animal_select"]
-        ["selected_option"]
-        ["value"]
-    )
+    animal = selected_value(values["animal_block"]["animal_select"])
 
-    disease = (
-        values["disease_block"]
-        ["disease_select"]
-        ["selected_option"]
-        ["value"]
-    )
+    disease = selected_value(values["disease_block"]["disease_select"])
     # ---------------------------------------------
     # 조회 시작/종료 날짜·시간
     # ---------------------------------------------
@@ -784,7 +746,7 @@ def handle_wahis_search(
     # =====================================================
     # 조회 조건 표시
     # =====================================================
-    region_label = {
+    region_label = selection_label(region, {
         "all": "전체",
         "Asia": "아시아",
         "Europe": "유럽",
@@ -792,31 +754,17 @@ def handle_wahis_search(
         "America": "아메리카",
         "Oceania": "오세아니아",
         "Other": "기타",
-    }.get(
-        region,
-        region,
-    )
+    })
 
-    animal_label = {
+    animal_label = selection_label(animal, {
         "all": "전체",
         "domestic": "사육",
         "wild": "야생",
-    }.get(
-        animal,
-        animal,
-    )
+    })
 
-    country_label = (
-        "전체 국가"
-        if country == "all"
-        else country
-    )
+    country_label = selection_label(country)
 
-    disease_label = (
-        "전체 질병"
-        if disease == "all"
-        else disease
-    )
+    disease_label = selection_label(disease)
 
     condition_text = (
         f"{region_label} · "
@@ -1035,7 +983,7 @@ def build_stats_modal(
         REGION_OPTIONS[0],
     )
 
-    return {
+    return multi_filter_view({
         "type": "modal",
 
         "callback_id": "wahis_stats_modal",
@@ -1273,7 +1221,7 @@ def build_stats_modal(
                 },
             },
         ],
-    }
+    })
 
 
 # =========================================================
@@ -1307,63 +1255,6 @@ def handle_stats_region_change(
 ):
 
     ack()
-
-    selected_region = (
-        body["actions"][0]
-        ["selected_option"]
-        ["value"]
-    )
-
-    print(
-        f"[WAHIS-STATS] 선택된 권역: "
-        f"{selected_region}"
-    )
-
-    # =====================================================
-    # 권역에 따른 국가 목록 생성
-    # =====================================================
-
-    if selected_region == "all":
-
-        country_options = (
-            build_country_options()
-        )
-
-    else:
-
-        country_options = (
-            build_country_options(
-                selected_region
-            )
-        )
-
-    print(
-        f"[WAHIS-STATS] 국가 옵션 수: "
-        f"{len(country_options)}"
-    )
-
-    print(
-        "[WAHIS-STATS] 국가 옵션:",
-        [
-            option["value"]
-            for option in country_options
-        ]
-    )
-
-    # =====================================================
-    # Modal 업데이트
-    # =====================================================
-
-    client.views_update(
-        view_id=body["view"]["id"],
-
-        hash=body["view"]["hash"],
-
-        view=build_stats_modal(
-            selected_region=selected_region,
-            country_options=country_options,
-        ),
-    )
 
 
 # =========================================================
@@ -2294,7 +2185,7 @@ def post_event_button(
         code,
     )
 
-    value = json.dumps(
+    value = encode_filters(
         {
             "c": code,
             "s": start_date,
@@ -2302,7 +2193,6 @@ def post_event_button(
             "r": db_region or "",
             "k": db_country or "",
         },
-        ensure_ascii=False,
     )
 
     client.chat_postMessage(
@@ -2373,11 +2263,9 @@ def build_event_list_modal(params, page):
         params["c"],
     )
 
-    country_text = (
-        params["k"]
-        if params["k"]
-        else "전체 국가"
-    )
+    country_text = selection_label(params['k'], all_label='전체 국가')
+    if len(country_text) > 1200:
+        country_text = country_text[:1200] + '…'
 
     blocks = [
         {
@@ -2527,9 +2415,8 @@ def build_event_list_modal(params, page):
         },
 
         # 이전 / 다음 버튼이 조회 조건을 알 수 있도록 보관
-        "private_metadata": json.dumps(
+        "private_metadata": encode_filters(
             {**params, "page": page},
-            ensure_ascii=False,
         ),
 
         "blocks": blocks,
@@ -2575,9 +2462,12 @@ def handle_open_event_list(
 
     ack()
 
-    params = json.loads(
-        body["actions"][0]["value"]
-    )
+    try:
+        params = decode_filters(body['actions'][0]['value'])
+    except ValueError as error:
+        open_method = client.views_push if body.get('view') else client.views_open
+        open_method(trigger_id=body['trigger_id'], view=build_message_modal(str(error)))
+        return
 
     # trigger_id는 3초 안에 써야 하므로
     # 먼저 '불러오는 중' 모달을 열고
@@ -2623,9 +2513,11 @@ def change_event_page(
     delta,
 ):
 
-    meta = json.loads(
-        body["view"]["private_metadata"]
-    )
+    try:
+        meta = decode_filters(body['view']['private_metadata'])
+    except ValueError as error:
+        client.views_update(view_id=body['view']['id'], view=build_message_modal(str(error)))
+        return
 
     page = max(
         0,
@@ -2914,26 +2806,11 @@ def handle_wahis_stats_search(
     # Slack 선택값
     # =====================================================
 
-    disease = (
-        values["stats_disease_block"]
-        ["stats_disease_select"]
-        ["selected_option"]
-        ["value"]
-    )
+    disease = selected_value(values["stats_disease_block"]["stats_disease_select"])
 
-    region = (
-        values["stats_region_block"]
-        ["stats_region_select"]
-        ["selected_option"]
-        ["value"]
-    )
+    region = selected_value(values["stats_region_block"]["stats_region_select"])
 
-    country = (
-        values["stats_country_block"]
-        ["stats_country_select"]
-        ["selected_option"]
-        ["value"]
-    )
+    country = selected_value(values["stats_country_block"]["stats_country_select"])
 
     # Direct input takes precedence over calendar selection.
     start_text = (values.get("stats_start_text_block", {})
@@ -3038,7 +2915,16 @@ def handle_wahis_stats_search(
     # 표시용 조건
     # =====================================================
 
-    region_label = {
+    diseases = selection_values(disease) or ['HPAI', 'ASF', 'FMD', 'LSD', 'BSE']
+    for code in diseases:
+        collect_disease_stats(client, body, code, region, country, db_region, db_country,
+                              start_date, end_date, view_type)
+    show_stats_result_modal(slack_client, body, collector)
+
+
+def collect_disease_stats(client, body, disease, region, country, db_region, db_country,
+                          start_date, end_date, view_type):
+    region_label = selection_label(region, {
         "all": "전체",
         "Asia": "아시아",
         "Europe": "유럽",
@@ -3046,16 +2932,9 @@ def handle_wahis_stats_search(
         "America": "아메리카",
         "Oceania": "오세아니아",
         "Other": "기타",
-    }.get(
-        region,
-        region,
-    )
+    })
 
-    country_label = (
-        "전체 국가"
-        if country == "all"
-        else country
-    )
+    country_label = selection_label(country)
 
     # =====================================================
     # 국가별 발생 기간(일)
@@ -3134,7 +3013,6 @@ def handle_wahis_stats_search(
                 ),
             )
 
-        show_stats_result_modal(slack_client, body, collector)
         return
 
 
@@ -3190,7 +3068,6 @@ def handle_wahis_stats_search(
                 ),
             )
 
-            show_stats_result_modal(slack_client, body, collector)
             return
 
         # =================================================
@@ -3309,7 +3186,6 @@ def handle_wahis_stats_search(
                 db_country=db_country,
             )
 
-        show_stats_result_modal(slack_client, body, collector)
         return
 
     # =====================================================
@@ -3348,7 +3224,6 @@ def handle_wahis_stats_search(
             ),
         )
 
-        show_stats_result_modal(slack_client, body, collector)
         return
 
     # =====================================================
@@ -3405,7 +3280,6 @@ def handle_wahis_stats_search(
         )
 
 
-    show_stats_result_modal(slack_client, body, collector)
 
 # =========================================================
 # Socket Mode

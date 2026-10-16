@@ -3,6 +3,7 @@ from zoneinfo import ZoneInfo
 
 from database.db import get_connection
 from database.regions import region_filter
+from database.filters import selection_values, value_filter
 
 
 # =========================================================
@@ -330,13 +331,9 @@ def search_reports(
 
         if country:
 
-            sql += """
-                AND dr.country = %s
-            """
-
-            params.append(
-                country
-            )
+            condition, country_params = value_filter(country, 'dr.country')
+            sql += f' AND {condition}'
+            params.extend(country_params)
 
         # -------------------------------------------------
         # 질병
@@ -346,19 +343,15 @@ def search_reports(
         # 두 질병을 함께 조회
         # -------------------------------------------------
 
-        if disease:
+        if selection_values(disease):
 
-            disease_code = disease.upper()
-
-            if disease_code not in DISEASE_MAP:
-
-                raise ValueError(
-                    f"지원하지 않는 질병 코드입니다: {disease}"
-                )
-
-            disease_names = DISEASE_MAP[
-                disease_code
-            ]
+            disease_names = []
+            for disease_code in selection_values(disease):
+                disease_code = disease_code.upper()
+                if disease_code not in DISEASE_MAP:
+                    raise ValueError(f"Unsupported disease: {disease_code}")
+                disease_names.extend(DISEASE_MAP[disease_code])
+            disease_names = list(dict.fromkeys(disease_names))
 
             placeholders = ", ".join(
                 ["%s"] * len(disease_names)

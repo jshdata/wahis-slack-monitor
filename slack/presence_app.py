@@ -11,6 +11,8 @@ from zoneinfo import ZoneInfo
 from database.presence_db import disease_codes, load_presence_data
 from slack.presence_report import build_presence_report
 from slack.stats_report_server import REPORT_TTL_SECONDS, report_url
+from slack.multi_filters import multi_element, selected_value
+from database.filters import selection_values
 
 POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix='presence')
 SLOTS = BoundedSemaphore(4)
@@ -39,12 +41,19 @@ def settings_view(disease='HPAI'):
                         'HPAI는 가금과 가금 외를 별도 표로 표시합니다.')
     view.update(callback_id='presence_settings', submit={'type': 'plain_text', 'text': '표 만들기'})
     for block_id, label, values, initial in [
-            ('presence_disease', '질병', options, disease),
+            ('presence_disease', '질병', options, (selection_values(disease) or ['all'])[0]),
             ('presence_mode', '표시 단위', modes, 'year')]:
         view['blocks'].append({'type': 'input', 'block_id': block_id,
             'label': {'type': 'plain_text', 'text': label},
             'element': {'type': 'static_select', 'action_id': 'select', 'options': values,
                         'initial_option': next(o for o in values if o['value'] == initial)}})
+    disease_element = view['blocks'][1]['element']
+    view['blocks'][1]['element'] = multi_element(disease_element)
+    view['blocks'][1]['element']['initial_options'] = [
+        option for option in options if option['value'] in selection_values(disease)]
+    if not view['blocks'][1]['element']['initial_options']:
+        view['blocks'][1]['element'].pop('initial_options')
+    view['blocks'][1]['optional'] = True
     return view
 
 
@@ -53,10 +62,7 @@ def register_presence_handlers(app, reports):
     def open_settings(ack, body, client):
         ack()
         values = body['view'].get('state', {}).get('values', {})
-        selected = values.get('stats_disease_block', {}).get('stats_disease_select', {}).get('selected_option') or {}
-        disease = selected.get('value', 'HPAI')
-        if disease not in ('HPAI', 'ASF', 'FMD', 'LSD', 'BSE'):
-            disease = 'HPAI'
+        disease = selected_value(values.get('stats_disease_block', {}).get('stats_disease_select', {}))
         client.views_push(trigger_id=body['trigger_id'], view=settings_view(disease))
 
     @app.action('presence_report_link')
@@ -66,7 +72,7 @@ def register_presence_handlers(app, reports):
     @app.view('presence_settings')
     def generate(ack, body, view, client):
         values = view['state']['values']
-        disease = values['presence_disease']['select']['selected_option']['value']
+        disease = selected_value(values['presence_disease']['select'])
         mode = values['presence_mode']['select']['selected_option']['value']
         try:
             disease_codes(disease)

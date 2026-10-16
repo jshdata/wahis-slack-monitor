@@ -97,8 +97,10 @@ def register_neighbor_handlers(app, reports):
     def open_settings(ack, body, client):
         ack()
         values = body['view'].get('state', {}).get('values', {})
-        selected = values.get('stats_disease_block', {}).get('stats_disease_select', {}).get('selected_option') or {}
-        disease = selected.get('value', 'ASF')
+        # Keep this screen single-select while accepting the parent stats menu's new state.
+        from slack.multi_filters import selected_values
+        selected = selected_values(values.get('stats_disease_block', {}).get('stats_disease_select', {}))
+        disease = selected[0] if selected else 'ASF'
         if disease not in ('HPAI', 'ASF', 'FMD', 'LSD', 'BSE'):
             disease = 'ASF'
         client.views_push(trigger_id=body['trigger_id'], view=settings_view(disease))

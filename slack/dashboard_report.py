@@ -6,6 +6,7 @@ from functools import lru_cache
 
 from plotly import __version__ as PLOTLY_VERSION
 from plotly.offline import get_plotlyjs
+from slack.search_multi import MULTI_STYLE, MULTI_SCRIPT
 
 
 PLOTLY_PATH = f'/assets/plotly-{PLOTLY_VERSION}.js'
@@ -22,4 +23,7 @@ def build_dashboard_report(data, today, initial=None, inline_plotly=False):
     template = Path(__file__).with_name('dashboard_template.html').read_text(encoding='utf-8')
     library = ('<script>' + get_plotlyjs() + '</script>' if inline_plotly else
                f'<script src="{PLOTLY_PATH}"></script>')
-    return template.replace('<script>/*PLOTLY_LIBRARY*/</script>', library).replace('/*DASHBOARD_DATA*/', payload)
+    return (template.replace('<script>/*PLOTLY_LIBRARY*/</script>', library)
+            .replace('/*MULTI_SELECT_STYLE*/', MULTI_STYLE)
+            .replace('/*MULTI_SELECT_SCRIPT*/', MULTI_SCRIPT)
+            .replace('/*DASHBOARD_DATA*/', payload))

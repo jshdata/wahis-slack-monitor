@@ -54,7 +54,7 @@ class PresenceTests(unittest.TestCase):
         view = settings_view('BSE')
         inputs = [b for b in view['blocks'] if b['type'] == 'input']
         self.assertEqual([b['block_id'] for b in inputs], ['presence_disease', 'presence_mode'])
-        self.assertEqual(inputs[0]['element']['initial_option']['value'], 'BSE')
+        self.assertEqual(inputs[0]['element']['initial_options'][0]['value'], 'BSE')
 
     @patch('slack.presence_app.POOL')
     @patch('slack.presence_app.report_url', return_value='https://example.test/reports/test')

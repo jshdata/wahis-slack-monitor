@@ -6,6 +6,7 @@ from html import escape
 
 from slack.notifier import get_reason_label
 from slack.weekly_report import KST, outbreak_count, report_kind, report_value, summary
+from slack.search_multi import MULTI_STYLE, MULTI_SCRIPT
 
 
 def local_date(report):
@@ -101,7 +102,7 @@ def build_weekly_html(reports, start, end):
                         ('보고 질병', counts['diseases'], '개'), ('후속 리포트', counts['followups'], '건'),
                         ('추가 발생', counts['outbreaks'], '건')])
     empty = '<p class="empty">해당 기간에 제출된 신규 리포트가 없습니다.</p>' if not reports else ''
-    return '''<!doctype html>
+    html = '''<!doctype html>
 <html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>WAHIS 주간 리포트</title><style>
 :root{color-scheme:light;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#1c3047;background:#f3f6fa}
@@ -116,7 +117,7 @@ button,select{font:inherit;border:1px solid #cbd7e2;border-radius:8px;background
 table{width:100%;border-collapse:collapse;min-width:1050px;font-size:13px}th,td{padding:15px 16px;text-align:left;border-top:1px solid #e6edf3;vertical-align:top;line-height:1.6}th{background:#f8fafc;font-size:12px;color:#617387}td:nth-child(4){text-align:right}a{color:#146c9f;text-decoration:none;white-space:nowrap}a:hover{text-decoration:underline}.badge{display:inline-block;border-radius:5px;background:#edf3f7;padding:2px 6px;white-space:nowrap}.empty{padding:35px;text-align:center}
 [hidden]{display:none!important}@media(max-width:800px){main{padding:22px 14px}h1{font-size:26px}.cards{grid-template-columns:repeat(2,1fr)}.card:last-child{grid-column:span 2}.toolbar{position:static}header{align-items:flex-start}}
 @media print{.toolbar,header button{display:none}body{background:white}.scroll{overflow:visible}table{min-width:0}.group{break-inside:avoid}main{padding:0}.card{padding:10px}}
-</style></head><body><main><header><div><div class="eyebrow">WAHIS / WEEKLY DIGEST</div>
+</style><style>/*MULTI_STYLE*/</style></head><body><main><header><div><div class="eyebrow">WAHIS / WEEKLY DIGEST</div>
 <h1>한 주의 동물질병 리포트</h1>''' + (
         f'<p class="muted">{start:%Y.%m.%d %H:%M} — '
         f'{end - timedelta(seconds=1):%Y.%m.%d %H:%M} · 서울시간</p></div>'
@@ -140,11 +141,14 @@ table{width:100%;border-collapse:collapse;min-width:1050px;font-size:13px}th,td{
         f'{empty}<p id="no-match" class="empty" hidden>선택한 조건에 해당하는 리포트가 없습니다.</p>'
         + ''.join(panels)
     ) + '''</main><script>
+/*MULTI_SCRIPT*/
 let view='date';
 function setView(next){view=next;for(const name of ['date','country','disease']){document.getElementById(name+'-view').hidden=name!==view;document.getElementById(name+'-button').setAttribute('aria-pressed',String(name===view))}filterGroups()}
-function filterGroups(){const country=document.getElementById('country-filter').value,date=document.getElementById('date-filter').value,disease=document.getElementById('disease-filter').value;let matches=0;document.querySelectorAll('.group').forEach(group=>{group.hidden=Boolean((country&&group.dataset.country!==country)||(date&&group.dataset.date!==date)||(disease&&group.dataset.disease!==disease))});document.querySelectorAll('.section').forEach(section=>{section.hidden=![...section.querySelectorAll('.group')].some(group=>!group.hidden)});document.querySelectorAll('#'+view+'-view .group').forEach(group=>{if(!group.hidden)matches++});document.getElementById('no-match').hidden=Boolean(matches)||(!country&&!date&&!disease)}
+function filterGroups(){const countries=multiValues('country-filter'),dates=multiValues('date-filter'),diseases=multiValues('disease-filter');let matches=0;document.querySelectorAll('.group').forEach(group=>{group.hidden=Boolean((countries.length&&!countries.includes(group.dataset.country))||(dates.length&&!dates.includes(group.dataset.date))||(diseases.length&&!diseases.includes(group.dataset.disease)))});document.querySelectorAll('.section').forEach(section=>{section.hidden=![...section.querySelectorAll('.group')].some(group=>!group.hidden)});document.querySelectorAll('#'+view+'-view .group').forEach(group=>{if(!group.hidden)matches++});document.getElementById('no-match').hidden=Boolean(matches)||(!countries.length&&!dates.length&&!diseases.length)}
 function setOpen(open){document.querySelectorAll('#'+view+'-view .group').forEach(group=>group.open=open)}
 document.getElementById('country-filter').addEventListener('change',filterGroups);
 document.getElementById('date-filter').addEventListener('change',filterGroups);
 document.getElementById('disease-filter').addEventListener('change',filterGroups);
+for(const id of ['country-filter','date-filter','disease-filter']){const select=document.getElementById(id);new SearchMultiSelect(select,select.options[0].text)}
 </script></body></html>'''
+    return html.replace('/*MULTI_STYLE*/', MULTI_STYLE).replace('/*MULTI_SCRIPT*/', MULTI_SCRIPT)

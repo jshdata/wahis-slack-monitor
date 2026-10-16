@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 from database.dashboard_db import load_dashboard_data
 from slack.dashboard_report import build_dashboard_report
 from slack.stats_report_server import REPORT_TTL_SECONDS, report_url
+from slack.multi_filters import selected_values
 
 POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix='dashboard')
 SLOTS = BoundedSemaphore(4)
@@ -30,9 +31,8 @@ def dashboard_view(text, url=None):
 def dashboard_selection(values):
     selected = {}
     for field in ('disease', 'region', 'country'):
-        option = values.get(f'stats_{field}_block', {}).get(
-            f'stats_{field}_select', {}).get('selected_option') or {}
-        selected[field] = option.get('value', '')
+        state = values.get(f'stats_{field}_block', {}).get(f'stats_{field}_select', {})
+        selected[field] = selected_values(state)
     for field in ('start', 'end'):
         raw = (values.get(f'stats_{field}_text_block', {}).get(
             f'stats_{field}_text', {}).get('value') or '').strip()

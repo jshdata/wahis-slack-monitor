@@ -2,6 +2,7 @@
 <html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>WAHIS 통계 대시보드</title>
 <style>
+/*MULTI_SELECT_STYLE*/
 :root{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#172c40;background:#f1f5f9;color-scheme:light;--blue:#2469a0;--muted:#64788c;--border:#e0e8ef}
 *{box-sizing:border-box}body{margin:0}main{max-width:1540px;margin:auto;padding:30px 30px 60px}header{display:flex;justify-content:space-between;gap:20px;align-items:center;margin-bottom:24px}.eyebrow{font-size:11px;letter-spacing:2px;font-weight:700;color:var(--blue)}h1{font-size:30px;letter-spacing:-1px;margin:9px 0}header p{margin:0;color:var(--muted);font-size:13px}.live{font-size:12px;padding:9px 14px;border:1px solid #c8ddd7;border-radius:30px;background:#f3fcf8;color:#386b5a;white-space:nowrap}
 .filters{display:flex;flex-wrap:wrap;align-items:end;gap:14px;background:white;border:1px solid var(--border);border-radius:14px;padding:20px}.filters label{display:flex;flex-direction:column;gap:8px;font-size:12px;color:var(--muted)}select,input,button{font:inherit;border:1px solid #ccd9e4;background:white;color:#19354b;border-radius:7px;padding:9px 10px;min-height:38px}select{max-width:245px}.filters select{min-width:120px}.presets{display:flex;gap:6px}button{cursor:pointer}button:hover{background:#eaf3fb}button.primary{background:#205e8e;color:white;border-color:#205e8e}button.primary:hover{background:#174a72}
@@ -31,15 +32,17 @@
 전년 동기는 선택한 시작일·종료일을 각각 1년 전으로 옮긴 범위입니다. 2월 29일은 전년도 2월 28일로 조정하며, 일별 비교에서 같은 전년도 발생건수를 중복 사용하지 않습니다. 전년 0건일 때 증감률은 계산하지 않습니다.<br>
 DB에 수집된 자료를 기준으로 하며, 0건은 저장된 발생 기록이 없다는 의미입니다. 미보고·미수집 여부를 판정하지 않습니다. 이 페이지는 열 때 생성된 데이터 사본이며 최신 자료는 Slack에서 대시보드를 다시 열어 확인하세요.</footer>
 </main><script>
+/*MULTI_SELECT_SCRIPT*/
 const DATA=/*DASHBOARD_DATA*/;
 const $=id=>document.getElementById(id),fmt=n=>n.toLocaleString('ko-KR');
 const labels={HPAI:'HPAI 가금',HPAI_NON_POULTRY:'HPAI 가금 외',ASF:'ASF',FMD:'FMD',LSD:'LSD',BSE:'BSE'};
 const colors=['#286eaa','#48a896','#ecaa55','#8c79b7','#dc7d77','#8b9eb0'];
 const day=s=>new Date(s+'T00:00:00Z'),iso=d=>d.toISOString().slice(0,10),key=(s,u)=>s.slice(0,u==='year'?4:u==='month'?7:10);
 function shiftYear(s,n){let d=day(s),m=d.getUTCMonth(),target=d.getUTCFullYear()+n;d.setUTCFullYear(target);if(d.getUTCMonth()!==m)d.setUTCDate(0);return iso(d)}
-function regionMatches(r,region){return region==='all'||r[2]===region||(region==='America'&&['North America','South America'].includes(r[2]))}
-function diseaseMatches(r,disease){return disease==='all'||(disease==='HPAI'&&['HPAI','HPAI_NON_POULTRY'].includes(r[3]))||(disease==='HPAI_POULTRY'&&r[3]==='HPAI')||r[3]===disease}
-function dimensionRows(){return DATA.rows.filter(r=>diseaseMatches(r,$('disease').value)&&regionMatches(r,$('region').value)&&($('country').value==='all'||r[1]===$('country').value))}
+function filterValues(value){return (Array.isArray(value)?value:[value]).filter(v=>v&&v!=='all')}
+function regionMatches(r,value){const regions=filterValues(value);return !regions.length||regions.some(region=>r[2]===region||(region==='America'&&['North America','South America'].includes(r[2])))}
+function diseaseMatches(r,value){const diseases=filterValues(value);return !diseases.length||diseases.some(disease=>(disease==='HPAI'&&['HPAI','HPAI_NON_POULTRY'].includes(r[3]))||(disease==='HPAI_POULTRY'&&r[3]==='HPAI')||r[3]===disease)}
+function dimensionRows(){const countries=multiValues('country');return DATA.rows.filter(r=>diseaseMatches(r,multiValues('disease'))&&regionMatches(r,multiValues('region'))&&(!countries.length||countries.includes(r[1])))}
 function sum(rows){return rows.reduce((n,r)=>n+r[4],0)}
 function group(rows,index){const result=new Map;for(const r of rows)result.set(r[index],(result.get(r[index])||0)+r[4]);return [...result].sort((a,b)=>b[1]-a[1])}
 function bucketKeys(start,end,unit){const result=[],cursor=day(start);if(unit==='month')cursor.setUTCDate(1);if(unit==='year')cursor.setUTCMonth(0,1);while(iso(cursor)<=end){result.push(key(iso(cursor),unit));if(unit==='day')cursor.setUTCDate(cursor.getUTCDate()+1);else if(unit==='month')cursor.setUTCMonth(cursor.getUTCMonth()+1);else cursor.setUTCFullYear(cursor.getUTCFullYear()+1)}return result}
@@ -51,7 +54,7 @@ function plot(id,traces,layout={}){$(id).classList.remove('empty');Plotly.react(
 function empty(id,message){Plotly.purge(id);$(id).classList.add('empty');$(id).textContent=message}
 function trace(x,y,name,color,type){return {x,y,name,type:type==='line'?'scatter':'bar',mode:'lines+markers',line:{color,width:2.5},marker:{color,size:5},hovertemplate:'%{x}<br>%{y:,d}건<extra>%{fullData.name}</extra>'}}
 let currentState=null;
-function updateCountries(){const previous=$('country').value;const countries=[...new Set(DATA.rows.filter(r=>regionMatches(r,$('region').value)&&diseaseMatches(r,$('disease').value)).map(r=>r[1]))].sort();$('country').replaceChildren(new Option('전체 국가','all'),...countries.map(c=>new Option(c,c)));if(countries.includes(previous))$('country').value=previous}
+function updateCountries(){const previous=multiValues('country');const countries=[...new Set(DATA.rows.filter(r=>regionMatches(r,multiValues('region'))&&diseaseMatches(r,multiValues('disease'))).map(r=>r[1]).concat(previous))].sort();$('country').replaceChildren(...countries.map(c=>new Option(c,c)));multiSetValues('country',previous)}
 function render(){const start=$('start').value,end=$('end').value,unit=$('unit').value;$('error').hidden=true;if(!start||!end||start>end||end>DATA.today){$('error').textContent='시작일·종료일을 확인해주세요. 종료일은 데이터 기준일 이후일 수 없습니다.';$('error').hidden=false;return}
  const keys=bucketKeys(start,end,unit);if(keys.length>4000){$('error').textContent='일별 조회는 최대 4,000일입니다. 월별 또는 연도별로 변경해주세요.';$('error').hidden=false;return}
  const dimensions=dimensionRows(),current=dimensions.filter(r=>r[0]>=start&&r[0]<=end),pStart=shiftYear(start,-1),pEnd=shiftYear(end,-1),previous=dimensions.filter(r=>r[0]>=pStart&&r[0]<=pEnd);
@@ -68,5 +71,5 @@ function render(){const start=$('start').value,end=$('end').value,unit=$('unit')
 for(const id of ['disease','region'])$(id).addEventListener('change',()=>{updateCountries();render()});for(const id of ['country','unit','trend-type','compare-type','share-type'])$(id).addEventListener('change',render);$('apply').addEventListener('click',render);
 document.querySelectorAll('[data-preset]').forEach(button=>button.addEventListener('click',()=>{const preset=button.dataset.preset;$('end').value=DATA.today;const rows=dimensionRows();if(preset==='year')$('start').value=DATA.today.slice(0,4)+'-01-01';else if(preset==='12months'){const d=day(shiftYear(DATA.today,-1));d.setUTCDate(d.getUTCDate()+1);$('start').value=iso(d)}else $('start').value=rows.length?rows.reduce((min,r)=>r[0]<min?r[0]:min,rows[0][0]):DATA.today;render()}));
 $('csv').addEventListener('click',()=>{if(!currentState)return;const {keys,a,b}=currentState;const rows=[['기간','발생건수','전년 동기','증감','증감률'],...keys.map((k,i)=>[k,a[i],b[i],a[i]-b[i],percent(a[i],b[i])])];const csv='\ufeff'+rows.map(r=>r.map(v=>'"'+String(v).replaceAll('"','""')+'"').join(',')).join('\r\n');const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'})),link=document.createElement('a');link.href=url;link.download='wahis-dashboard.csv';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000)});
-$('snapshot').textContent='데이터 기준 · '+DATA.today+' KST';for(const id of ['start','end'])$(id).max=DATA.today;const initial=DATA.initial;$('disease').value=initial.disease||'all';if(!$('disease').value)$('disease').value='all';$('region').value=initial.region||'all';if(!$('region').value)$('region').value='all';updateCountries();if([...$('country').options].some(o=>o.value===initial.country))$('country').value=initial.country;$('start').value=initial.start||DATA.today.slice(0,4)+'-01-01';$('end').value=initial.end||DATA.today;render();
+$('snapshot').textContent='데이터 기준 · '+DATA.today+' KST';for(const id of ['start','end'])$(id).max=DATA.today;const initial=DATA.initial;for(const id of ['disease','region','country'])new SearchMultiSelect($(id),$(id).options[0].text);multiSetValues('disease',initial.disease||[]);multiSetValues('region',initial.region||[]);updateCountries();multiSetValues('country',initial.country||[]);$('start').value=initial.start||DATA.today.slice(0,4)+'-01-01';$('end').value=initial.end||DATA.today;render();
 </script></body></html>

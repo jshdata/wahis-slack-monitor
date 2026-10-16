@@ -2,18 +2,20 @@
 
 from database.db import get_connection
 from database.regions import KNOWN_REGIONS, region_filter
+from database.filters import selection_values, value_filter
 
 
 def get_outbreak_date_bounds(disease_code, region=None, country=None):
     """Resolve omitted dates from the selected disease/country's stored outbreaks."""
-    codes = ('HPAI', 'HPAI_NON_POULTRY') if disease_code == 'HPAI' else (disease_code,)
+    codes = list(dict.fromkeys(code for selected in (selection_values(disease_code) or ['HPAI', 'ASF', 'FMD', 'LSD', 'BSE']) for code in (('HPAI', 'HPAI_NON_POULTRY') if selected == 'HPAI' else (selected,))))
     names = [DISEASE_MAP[code] for code in codes]
     conditions = [f"dr.disease IN ({', '.join(['%s'] * len(names))})"]
     params = list(names)
     if country:
-        conditions.append('dr.country = %s')
-        params.append(country)
-    elif region:
+        condition, values = value_filter(country, 'dr.country')
+        conditions.append(condition)
+        params.extend(values)
+    if region:
         condition, values = region_filter(region)
         conditions.append(condition)
         params.extend(values)
@@ -201,7 +203,7 @@ def get_outbreak_stats(
 
             # ---------------------------------------------
 
-            if region and not country:
+            if region:
 
                 condition, region_params = region_filter(region)
                 conditions.append(condition)
@@ -215,17 +217,9 @@ def get_outbreak_stats(
 
             if country:
 
-                conditions.append(
-
-                    "dr.country = %s"
-
-                )
-
-                params.append(
-
-                    country
-
-                )
+                condition, values = value_filter(country, 'dr.country')
+                conditions.append(condition)
+                params.extend(values)
 
             where_clause = " AND ".join(
 
@@ -531,7 +525,7 @@ def get_outbreak_duration_stats(
 
     ]
 
-    if region and not country:
+    if region:
 
         condition, region_params = region_filter(region)
         conditions.append(condition)
@@ -539,17 +533,9 @@ def get_outbreak_duration_stats(
 
     if country:
 
-        conditions.append(
-
-            "dr.country = %s"
-
-        )
-
-        params.append(
-
-            country
-
-        )
+        condition, values = value_filter(country, 'dr.country')
+        conditions.append(condition)
+        params.extend(values)
 
     where_clause = " AND ".join(
 
@@ -863,7 +849,7 @@ def get_outbreak_events(
 
     ]
 
-    if region and not country:
+    if region:
 
         condition, region_params = region_filter(region)
         conditions.append(condition)
@@ -871,17 +857,9 @@ def get_outbreak_events(
 
     if country:
 
-        conditions.append(
-
-            "dr.country = %s"
-
-        )
-
-        params.append(
-
-            country
-
-        )
+        condition, values = value_filter(country, 'dr.country')
+        conditions.append(condition)
+        params.extend(values)
 
     where_clause = " AND ".join(
 

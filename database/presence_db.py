@@ -2,9 +2,13 @@
 
 from database.db import get_connection
 from database.stats_db import DISEASE_MAP
+from database.filters import selection_values
 
 
 def disease_codes(selection):
+    if isinstance(selection, (list, tuple)):
+        return list(dict.fromkeys(code for item in (selection_values(selection) or ['all'])
+                                  for code in disease_codes(item)))
     if selection == 'all':
         return list(DISEASE_MAP)
     if selection == 'HPAI':

@@ -6,6 +6,8 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import BoundedSemaphore
 
 from database import woah_db
+from database.filters import selection_values, selection_value, selection_label
+from slack.multi_filters import multi_element, selected_value
 from woah.collector import DISEASES, validate_pdf_url
 
 logger = logging.getLogger(__name__)
@@ -58,19 +60,23 @@ def filtered_documents(docs, start_date=None, end_date=None):
 
 
 def list_view(disease='HPAI', page=0, start_date=None, end_date=None):
-    if disease not in DISEASES and disease != 'all':
+    codes = selection_values(disease) or list(DISEASES)
+    if any(code not in DISEASES for code in codes):
         raise ValueError('지원하지 않는 질병입니다.')
-    docs, unknown = filtered_documents(woah_db.list_documents(None if disease == 'all' else disease), start_date, end_date)
-    run = woah_db.latest_run(disease) if disease != 'all' else None
+    source = woah_db.list_documents(codes[0] if len(codes) == 1 else None)
+    docs, unknown = filtered_documents([doc for doc in source if doc['disease'] in codes], start_date, end_date)
+    run = woah_db.latest_run(codes[0]) if len(codes) == 1 else None
     pages = max(1, (len(docs) + PAGE_SIZE - 1) // PAGE_SIZE)
     page = max(0, min(page, pages - 1))
     options = [{'text': {'type': 'plain_text', 'text': code}, 'value': code} for code in DISEASES]
-    options.insert(0, {'text': {'type': 'plain_text', 'text': '모든 질병'}, 'value': 'all'})
     meta = {'d': disease, 'p': page, 's': start_date, 'e': end_date}
     blocks = [section('*국가가 제출한 자체 청정 선언입니다. WOAH 공식 인정과 구분됩니다.*'),
-              {'type': 'actions', 'elements': [{'type': 'static_select',
+              {'type': 'actions', 'elements': [{'type': 'multi_static_select',
                'action_id': 'woah_docs_disease', 'options': options,
-               'initial_option': next(option for option in options if option['value'] == disease)}]}]
+               'placeholder': {'type': 'plain_text', 'text': '전체 · 질병 검색 및 복수 선택'},
+               'initial_options': [option for option in options if option['value'] in selection_values(disease)]}]}]
+    if not blocks[1]['elements'][0]['initial_options']:
+        blocks[1]['elements'][0].pop('initial_options')
     for block_id, label, selected in (('woah_start', '시작 날짜 (비워두면 전체)', start_date),
                                       ('woah_end', '종료 날짜 (비워두면 전체)', end_date)):
         element = {'type': 'datepicker', 'action_id': 'woah_docs_date',
@@ -93,9 +99,9 @@ def list_view(disease='HPAI', page=0, start_date=None, end_date=None):
                                   '질병이 없다는 의미는 아닙니다. 기존 보관 문서는 유지됩니다.'))
         elif run['status'] == 'COLLECTION_FAILED':
             blocks.append(section('최신 목록 수집에 실패했습니다. 아래는 기존에 보관한 자료입니다.'))
-    elif disease != 'all':
+    elif len(codes) == 1:
         blocks.append(section('아직 수집 이력이 없습니다. 서버에서 woah_main.py를 실행해 주세요.'))
-    blocks.append(section(f'*{disease} · 보관 문서 {len(docs)}건 · {page + 1}/{pages} 페이지*'))
+    blocks.append(section(f'*{selection_label(disease)} · 보관 문서 {len(docs)}건 · {page + 1}/{pages} 페이지*'))
     for doc in docs[page * PAGE_SIZE:(page + 1) * PAGE_SIZE]:
         text = (f'*{escape(doc["country"])}* · 게시일: {escape(doc["published_date"])}\n'
                 f'{escape(doc["title"])}\nPDF: {escape(doc["download_status"])}')
@@ -129,14 +135,15 @@ def list_view(disease='HPAI', page=0, start_date=None, end_date=None):
 
 
 def countries_view(disease='HPAI', start_date=None, end_date=None):
-    if disease not in DISEASES and disease != 'all':
+    codes = selection_values(disease) or list(DISEASES)
+    if any(code not in DISEASES for code in codes):
         raise ValueError('지원하지 않는 질병입니다.')
-    docs, unknown = filtered_documents(
-        woah_db.list_declaration_countries(None if disease == 'all' else disease), start_date, end_date)
+    source = woah_db.list_declaration_countries(codes[0] if len(codes) == 1 else None)
+    docs, unknown = filtered_documents([doc for doc in source if doc['disease'] in codes], start_date, end_date)
     regions = [('Asia', '아시아'), ('Europe', '유럽'), ('Africa', '아프리카'),
                ('America', '아메리카'), ('Oceania', '오세아니아'), ('Other', '기타')]
     grouped = {code: {region: set() for region, _ in regions} for code in
-               (DISEASES if disease == 'all' else [disease])}
+               codes}
     for doc in docs:
         region = doc.get('region')
         if region in ('North America', 'South America'):
@@ -235,9 +242,8 @@ def register_woah_handlers(app):
         values = body['view'].get('state', {}).get('values', {})
         disease = meta.get('d', 'HPAI')
         for block in values.values():
-            selected = block.get('woah_docs_disease', {}).get('selected_option')
-            if selected:
-                disease = selected['value']
+            if 'woah_docs_disease' in block:
+                disease = selected_value(block['woah_docs_disease'])
         start = values.get('woah_start', {}).get('woah_docs_date', {}).get('selected_date', meta.get('s'))
         end = values.get('woah_end', {}).get('woah_docs_date', {}).get('selected_date', meta.get('e'))
         return disease, start, end
@@ -273,10 +279,7 @@ def register_woah_handlers(app):
     def open_from_stats(ack, body, client):
         ack()
         state = body.get('view', {}).get('state', {}).get('values', {})
-        selected = state.get('stats_disease_block', {}).get('stats_disease_select', {}).get('selected_option') or {}
-        disease = selected.get('value', 'HPAI')
-        if disease not in DISEASES:
-            disease = 'HPAI'
+        disease = selected_value(state.get('stats_disease_block', {}).get('stats_disease_select', {}))
         response = client.views_push(trigger_id=body['trigger_id'], view=loading())
         submit(client, response['view']['id'], lambda: list_view(disease))
 
@@ -291,7 +294,7 @@ def register_woah_handlers(app):
     @app.action('woah_docs_disease')
     def change_disease(ack, body, client):
         ack()
-        disease = body['actions'][0]['selected_option']['value']
+        disease = selected_value(body['actions'][0])
         _, start, end = selected_filters(body)
         client.views_update(view_id=body['view']['id'], view=loading())
         submit(client, body['view']['id'], lambda: list_view(disease, start_date=start, end_date=end),
