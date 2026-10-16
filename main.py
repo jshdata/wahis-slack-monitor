@@ -1,6 +1,10 @@
 import time
 import traceback
 
+from slack.error_notifier import ErrorReporter
+
+ERRORS = ErrorReporter('WAHIS 리포트 수집')
+
 from wahis.api import get_events
 from wahis.detail_api import get_report_detail
 
@@ -135,6 +139,7 @@ def load_report_detail(
     ):
 
         try:
+            stage = 'WAHIS 상세 API 조회'
 
             print(
                 f"상세정보 API 요청: "
@@ -160,6 +165,7 @@ def load_report_detail(
             # detail_loaded = 1
             # ---------------------------------------------
 
+            stage = '상세정보 DB 저장'
             save_report_detail(
                 detail
             )
@@ -234,6 +240,8 @@ def load_report_detail(
                     "유지됩니다."
                 )
 
+                ERRORS.record(f'{stage} (재시도 소진)', e,
+                              report_id=report_id, attempts=attempt)
                 return False
 
             # ---------------------------------------------
@@ -387,6 +395,8 @@ def send_and_record_slack(event):
         send_new_report_alert(event)
 
     except Exception as e:
+        ERRORS.record('신규 리포트 Slack 전송', e, report_id=report_id,
+                      country=event.get('country'), disease=event.get('disease'))
         print(
             f"Slack 전송 실패: report_id={report_id}, "
             f"error={repr(e)}"
@@ -396,6 +406,7 @@ def send_and_record_slack(event):
         try:
             mark_slack_failed(report_id)
         except Exception as db_error:
+            ERRORS.record('Slack 실패 상태 DB 기록', db_error, report_id=report_id)
             print(
                 f"Slack 실패 상태 기록 오류: "
                 f"{repr(db_error)}"
@@ -409,6 +420,7 @@ def send_and_record_slack(event):
         mark_slack_sent(report_id)
 
     except Exception as e:
+        ERRORS.record('Slack 성공 상태 DB 기록', e, report_id=report_id)
         print(
             f"Slack 전송은 성공했으나 DB 기록 실패: "
             f"report_id={report_id}, error={repr(e)}"
@@ -495,12 +507,12 @@ def main():
     (
         recovery_success_count,
         recovery_fail_count
-    ) = recover_unprocessed_details()
+    ) = ERRORS.call('미처리 상세정보 복구', recover_unprocessed_details)
 
     (
         slack_recovery_success_count,
         slack_recovery_fail_count
-    ) = recover_unsent_slack_alerts()
+    ) = ERRORS.call('미전송 Slack 알림 복구', recover_unsent_slack_alerts)
 
     # =====================================================
     # 2. 신규 Report 탐색
@@ -534,9 +546,10 @@ def main():
         # WAHIS에서 한 페이지 조회
         # -------------------------------------------------
 
-        data = get_events(
+        data = ERRORS.call('WAHIS 목록 API 조회', get_events,
             page_number=page_number,
-            page_size=PAGE_SIZE
+            page_size=PAGE_SIZE,
+            error_context={'page': page_number + 1},
         )
 
         events = data.get(
@@ -576,8 +589,8 @@ def main():
         # -------------------------------------------------
 
         existing_ids = (
-            get_existing_report_ids(
-                report_ids
+            ERRORS.call('기존 리포트 DB 조회', get_existing_report_ids,
+                report_ids, error_context={'page': page_number + 1},
             )
         )
 
@@ -671,8 +684,9 @@ def main():
             # 2-1. 기본정보 저장
             # =============================================
 
-            insert_disease_report(
-                event
+            ERRORS.call('신규 리포트 기본정보 DB 저장', insert_disease_report,
+                event, error_context={'report_id': report_id, 'country': event.get('country'),
+                                      'disease': event.get('disease')},
             )
 
             print(
@@ -808,4 +822,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    ERRORS.run(main)
