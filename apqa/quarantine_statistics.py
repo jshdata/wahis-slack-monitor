@@ -26,6 +26,10 @@ CELL_RE = re.compile(r"<t[dh]\b([^>]*)>(.*?)</t[dh]>", re.I | re.S)
 NUMBER_RE = re.compile(r"^\d[\d,]*(?:\.\d+)?$")
 
 
+class SourceNotReady(ValueError):
+    """The source identifies the requested dataset but supplies no usable table."""
+
+
 def clean(value):
     return " ".join(html_module.unescape(re.sub(r"<[^>]+>", " ", value)).split())
 
@@ -73,7 +77,7 @@ def parse_excel(raw, no, type_code, month):
     if not start:
         start = re.search(r"<table\b[^>]*bgcolor=['\"]#B3D6D2['\"][^>]*>", document, re.I)
     if not start:
-        raise ValueError("Missing data table; empty results need explicit verification")
+        raise SourceNotReady("Missing data table; empty results need explicit verification")
     data_end = document.find("</table>", start.end())
     if data_end < 0:
         raise ValueError("Unterminated data table")
@@ -115,7 +119,7 @@ def parse_excel(raw, no, type_code, month):
                             "case_count": int(count), "quantity": str(quantity)})
     totals = {r["unit"]: r for r in summaries if r["level"] == "총계"}
     if not totals:
-        raise ValueError("No source grand totals")
+        raise SourceNotReady("No source grand totals")
     if len(totals) != len([r for r in summaries if r["level"] == "총계"]):
         raise ValueError("Repeated source grand totals")
     validations = []
