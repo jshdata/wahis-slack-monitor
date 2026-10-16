@@ -1049,6 +1049,10 @@ def build_stats_modal(
                     "type": "button",
                     "action_id": "qia_import_open",
                     "text": {"type": "plain_text", "text": "수입건수"},
+                }, {
+                    "type": "button",
+                    "action_id": "population_open",
+                    "text": {"type": "plain_text", "text": "동물 개체수 조회"},
                 }],
             },
 
@@ -3312,6 +3316,10 @@ register_dashboard_handlers(app, _STATS_MATRIX_REPORTS)
 from slack.import_counts_app import register_import_counts_handlers
 
 register_import_counts_handlers(app, _STATS_MATRIX_REPORTS)
+
+from slack.population_app import register_population_handlers
+
+register_population_handlers(app, _STATS_MATRIX_REPORTS)
 
 if __name__ == "__main__":
 
