@@ -10,6 +10,21 @@ from slack.stats_report_server import create_report_server, report_url
 
 
 class ReportServerTests(unittest.TestCase):
+    def test_plotly_asset_is_served_with_immutable_cache(self):
+        from slack.dashboard_report import PLOTLY_PATH
+        server = create_report_server({}, host='127.0.0.1', port=0)
+        worker = Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        try:
+            with urlopen(f'http://127.0.0.1:{server.server_port}{PLOTLY_PATH}', timeout=5) as response:
+                self.assertIn(b'plotly', response.read()[:100].lower())
+                self.assertIn('immutable', response.headers['Cache-Control'])
+                self.assertIn('javascript', response.headers['Content-Type'])
+        finally:
+            server.shutdown()
+            server.server_close()
+            worker.join(timeout=2)
+
     @patch('slack.stats_report_server.load_weekly_html')
     def test_persistent_weekly_report_route(self, load):
         load.return_value = '<html>weekly</html>'

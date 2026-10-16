@@ -9,3 +9,4 @@ PyMySQL
 pypdf>=5,<7
 playwright>=1.50,<2
 tzdata
+plotly>=6,<7

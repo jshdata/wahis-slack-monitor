@@ -35,6 +35,10 @@ def create_report_server(reports, host='0.0.0.0', port=8765):
             if path == '/health':
                 content, status = b'ok', 200
                 content_type = 'text/plain; charset=utf-8'
+            elif path.startswith('/assets/plotly-'):
+                from slack.dashboard_report import PLOTLY_PATH, plotly_script
+                content, status = (plotly_script(), 200) if path == PLOTLY_PATH else (b'Not found', 404)
+                content_type = 'application/javascript; charset=utf-8'
             elif path.startswith('/weekly/'):
                 try:
                     html = load_weekly_html(path.removeprefix('/weekly/'))
@@ -56,7 +60,9 @@ def create_report_server(reports, host='0.0.0.0', port=8765):
             self.send_response(status)
             self.send_header('Content-Type', content_type)
             self.send_header('Content-Length', str(len(content)))
-            self.send_header('Cache-Control', 'no-store')
+            self.send_header('Cache-Control', 'public, max-age=31536000, immutable'
+                             if content_type.startswith('application/javascript') and status == 200
+                             else 'no-store')
             self.send_header('Referrer-Policy', 'no-referrer')
             self.send_header('X-Content-Type-Options', 'nosniff')
             self.send_header('X-Frame-Options', 'DENY')
