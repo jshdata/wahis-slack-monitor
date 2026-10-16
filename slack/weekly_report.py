@@ -1,14 +1,17 @@
 """Weekly WAHIS digest using stored report submission times (UTC)."""
 
-from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 import json
+import os
+from pathlib import Path
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 import pymysql
 
 from database.db import get_connection
 from slack.notifier import get_reason_label, send_slack_message
+from database.weekly_report_db import save_weekly_html
 
 KST = ZoneInfo('Asia/Seoul')
 
@@ -37,9 +40,12 @@ def load_weekly_reports(start, end):
     try:
         with connection.cursor(pymysql.cursors.DictCursor) as cursor:
             cursor.execute('''
-                SELECT report_id, event_id, country, disease, submission_date,
-                       report_type, reason, event_status, subtype, slack_event_json
-                FROM disease_reports
+                SELECT dr.report_id, dr.event_id, dr.country, dr.disease, dr.submission_date,
+                       dr.report_type, dr.reason, dr.event_status, dr.subtype,
+                       dr.slack_event_json, dr.detail_loaded, dr.report_number,
+                       (SELECT COUNT(*) FROM outbreaks o
+                        WHERE o.created_by_report_id = dr.report_id) AS new_outbreak_count
+                FROM disease_reports dr
                 WHERE submission_date >= %s AND submission_date < %s
                 ORDER BY country, disease, submission_date, report_id
             ''', (start.astimezone(timezone.utc).replace(tzinfo=None),
@@ -47,10 +53,6 @@ def load_weekly_reports(start, end):
             return cursor.fetchall()
     finally:
         connection.close()
-
-
-def escape(value):
-    return str(value).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
 
 
 def report_value(report, key, event_key):
@@ -67,73 +69,82 @@ def report_value(report, key, event_key):
         return '미확인'
 
 
+def report_kind(report):
+    value = report_value(report, 'report_type', 'reportType').lower()
+    if value == 'fur' or 'follow' in value:
+        return '후속 리포트'
+    if value == 'in' or 'immediate' in value or 'initial' in value:
+        return '최초 리포트'
+    if report.get('report_number') is not None:
+        return '최초 리포트' if int(report['report_number']) == 0 else '후속 리포트'
+    return '기타·미확인'
+
+
+def outbreak_count(report):
+    if not report.get('detail_loaded'):
+        return None
+    return int(report.get('new_outbreak_count') or 0)
+
+
+def summary(reports):
+    known = [outbreak_count(r) for r in reports]
+    return dict(
+        reports=len(reports), countries=len({r['country'] for r in reports}),
+        diseases=len({r['disease'] for r in reports}),
+        followups=sum(report_kind(r) == '후속 리포트' for r in reports),
+        initial=sum(report_kind(r) == '최초 리포트' for r in reports),
+        unknown=sum(report_kind(r) == '기타·미확인' for r in reports),
+        outbreaks=sum(value for value in known if value is not None),
+        incomplete=sum(value is None for value in known),
+    )
+
+
 def build_weekly_messages(reports, start, end):
-    """Render every report, splitting messages to stay within Slack limits."""
-    countries = {r['country'] for r in reports}
-    diseases = Counter(r['disease'] for r in reports)
-    events = {r['event_id'] for r in reports if r.get('event_id') is not None}
-    lines = [
-        '*📋 WAHIS 주간 신규 리포트 요약*',
-        f'*기간 (서울시간):* {start:%Y-%m-%d %H:%M} ~ '
-        f'{end - timedelta(seconds=1):%Y-%m-%d %H:%M:%S}',
-        '*기준:* WAHIS 제출시각 · 신규 제출 및 후속 리포트 포함',
-        f'*전체:* 리포트 {len(reports):,}건 · 국가 {len(countries):,}개 · '
-        f'질병 {len(diseases):,}개 · 이벤트 {len(events):,}개',
-        '※ 같은 이벤트의 후속 보고는 별도 리포트이며, 신규 발생건수를 뜻하지 않습니다.',
-        '',
-    ]
+    counts = summary(reports)
+    text = (
+        '*📋 WAHIS 주간 리포트 요약*\n'
+        f'{start:%Y-%m-%d %H:%M} ~ {end - timedelta(seconds=1):%Y-%m-%d %H:%M} (서울시간)\n'
+        f'*리포트 {counts["reports"]:,}건* · 국가 {counts["countries"]:,}개 · '
+        f'질병 {counts["diseases"]:,}개\n'
+        f'최초 {counts["initial"]:,}건 · 후속 리포트 {counts["followups"]:,}건 · 추가 발생 {counts["outbreaks"]:,}건'
+    )
+    if counts['incomplete']:
+        text += f' (상세 미수집 {counts["incomplete"]}개 리포트 제외)'
+    if counts['unknown']:
+        text += f'\n보고 구분 미확인 {counts["unknown"]}건'
     if not reports:
-        lines.append('해당 기간에 제출된 신규 리포트가 없습니다.')
-    else:
-        lines.append('*질병별 현황*')
-        for disease, count in diseases.most_common():
-            lines.append(f'• {escape(disease)}: {count:,}건')
-        groups = defaultdict(list)
-        for report in reports:
-            groups[(report['country'], report['disease'])].append(report)
-        lines.extend(['', '*국가·질병별 보고 내용*'])
-        for (country, disease), items in sorted(groups.items()):
-            lines.append(f'\n*{escape(country)} · {escape(disease)} — {len(items):,}건*')
-            types = Counter(report_value(r, 'report_type', 'reportType') for r in items)
-            reasons = Counter(get_reason_label(report_value(r, 'reason', 'reason')) for r in items)
-            lines.append('보고 유형: ' + ' / '.join(f'{escape(k)} {v}건' for k, v in types.items()))
-            lines.append('발생 사유: ' + ' / '.join(f'{escape(k)} {v}건' for k, v in reasons.items()))
-            for report in items:
-                submitted = report['submission_date'].replace(tzinfo=timezone.utc).astimezone(KST)
-                url = (f"https://wahis.woah.org/#/in-review/{int(report['event_id'])}"
-                       f"?reportId={int(report['report_id'])}&fromPage=event-dashboard-url")
-                status = report_value(report, 'event_status', 'eventStatus')
-                subtype = report.get('subtype') or '미확인'
-                lines.append(f'• <{url}|Report {report["report_id"]}> · {submitted:%m-%d %H:%M} · '
-                             f'유형 {escape(subtype)} · 상태 {escape(status)}')
-    chunks = []
-    current = ''
-    for line in lines:
-        # API-sourced free text can be long. Split rather than omit it.
-        while len(line) > 2700:
-            if current:
-                chunks.append(current)
-                current = ''
-            chunks.append(line[:2700])
-            line = line[2700:]
-        if len(current) + len(line) + 1 > 2800:
-            chunks.append(current)
-            current = ''
-        current += ('\n' if current else '') + line
-    if current:
-        chunks.append(current)
-    return chunks
+        text += '\n해당 기간에 제출된 신규 리포트가 없습니다.'
+    return [text]
 
 
-def send_weekly_report(start, end, dry_run=False):
+def weekly_public_base():
+    base = (os.getenv('WEEKLY_REPORT_BASE_URL') or os.getenv('STATS_REPORT_BASE_URL')
+            or 'https://wahis-slack-monitor-production.up.railway.app').rstrip('/')
+    parsed = urlsplit(base)
+    if parsed.scheme != 'https' or not parsed.netloc or parsed.hostname == 'railway.com':
+        raise ValueError('WEEKLY_REPORT_BASE_URL에는 앱의 HTTPS 공개 주소가 필요합니다.')
+    return base
+
+
+def send_weekly_report(start, end, dry_run=False, output_path=None):
+    from slack.weekly_html import build_weekly_html
+
     reports = load_weekly_reports(start, end)
-    messages = build_weekly_messages(reports, start, end)
-    for number, message in enumerate(messages, 1):
-        text = f'WAHIS 주간 요약 ({number}/{len(messages)})\n{message}'
-        if dry_run:
-            print(text)
-        else:
-            send_slack_message(
-                [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': text}}],
-                text=text)
+    html = build_weekly_html(reports, start, end)
+    if output_path:
+        Path(output_path).write_text(html, encoding='utf-8')
+    text = build_weekly_messages(reports, start, end)[0]
+    if dry_run:
+        print(text)
+    else:
+        base = weekly_public_base()
+        token = save_weekly_html(html)
+        url = f'{base}/weekly/{token}'
+        send_slack_message([
+            {'type': 'section', 'text': {'type': 'mrkdwn', 'text': text}},
+            {'type': 'actions', 'elements': [{
+                'type': 'button', 'text': {'type': 'plain_text', 'text': '주간 상세 HTML 보기'},
+                'url': url, 'action_id': 'weekly_report_open',
+            }]},
+        ], text=text)
     return len(reports)

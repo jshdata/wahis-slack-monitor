@@ -10,6 +10,30 @@ from slack.stats_report_server import create_report_server, report_url
 
 
 class ReportServerTests(unittest.TestCase):
+    @patch('slack.stats_report_server.load_weekly_html')
+    def test_persistent_weekly_report_route(self, load):
+        load.return_value = '<html>weekly</html>'
+        server = create_report_server({}, host='127.0.0.1', port=0)
+        worker = Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        url = f'http://127.0.0.1:{server.server_port}/weekly/' + 'a' * 43
+        try:
+            with urlopen(url, timeout=3) as response:
+                self.assertEqual(response.read(), b'<html>weekly</html>')
+            load.assert_called_with('a' * 43)
+            load.return_value = None
+            with self.assertRaises(HTTPError) as error:
+                urlopen(url, timeout=3)
+            self.assertEqual(error.exception.code, 404)
+            load.side_effect = RuntimeError('DB unavailable')
+            with self.assertRaises(HTTPError) as error:
+                urlopen(url, timeout=3)
+            self.assertEqual(error.exception.code, 503)
+        finally:
+            server.shutdown()
+            server.server_close()
+            worker.join(timeout=2)
+
     def test_public_url_configuration(self):
         with patch.dict(os.environ, {'RAILWAY_PUBLIC_DOMAIN': 'example.up.railway.app'}, clear=True):
             self.assertEqual(report_url('token'), 'https://example.up.railway.app/reports/token')

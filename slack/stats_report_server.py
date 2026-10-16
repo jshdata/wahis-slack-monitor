@@ -6,6 +6,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
 from urllib.parse import urlsplit
 
+from database.weekly_report_db import load_weekly_html
+
 REPORT_TTL_SECONDS = 3600
 
 
@@ -33,6 +35,15 @@ def create_report_server(reports, host='0.0.0.0', port=8765):
             if path == '/health':
                 content, status = b'ok', 200
                 content_type = 'text/plain; charset=utf-8'
+            elif path.startswith('/weekly/'):
+                try:
+                    html = load_weekly_html(path.removeprefix('/weekly/'))
+                    status = 200 if html else 404
+                    content = (html or '주간 리포트가 만료되었거나 존재하지 않습니다.').encode('utf-8')
+                except Exception:
+                    status = 503
+                    content = '리포트를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.'.encode('utf-8')
+                content_type = 'text/html; charset=utf-8'
             else:
                 key = path.removeprefix('/reports/') if path.startswith('/reports/') else ''
                 report = reports.get(key)

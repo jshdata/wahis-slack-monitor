@@ -172,20 +172,32 @@ cron-job 호출용 GitHub 토큰(fine-grained):
   즉, 이번 목요일 08:59:59까지이며 매주 누락이나 중복되는 경계가 없습니다.
 - 신규 여부는 DB 적재시각이 아닌 WAHIS `submission_date` 기준입니다.
   전체 질병의 최초·후속 리포트를 포함하며, 발생건수와 구분해 표시합니다.
-- 전체 건수·국가·질병·이벤트 수, 질병별 건수, 국가·질병별 보고 유형과
-  발생 사유, 각 리포트의 제출시각·유형·상태·원문 링크를 제공합니다.
-- 리포트가 없는 주도 0건 알림을 보내고, 내용이 길면 여러 메시지로 나눕니다.
+- Slack에는 전체 리포트·국가·질병 수, 최초·후속 리포트 수, 추가 발생건수와
+  **주간 상세 HTML 보기** 버튼 하나를 보냅니다. 리포트가 없는 주도 0건 알림을 보냅니다.
+- 상세 HTML에서 날짜별·국가별 보기를 전환하고, 국가·날짜로 필터링할 수 있습니다.
+  각 그룹에는 보고 유형·발생 사유·제출시각·아형·이벤트 상태·원문 링크를 표시합니다.
+- 추가 발생은 `outbreaks.created_by_report_id`가 해당 리포트인 고유 outbreak 수입니다.
+  기존 outbreak 수정은 추가 발생에 포함하지 않습니다. 상세 미수집 리포트는
+  발생건수 합계에서 제외하고 미확인으로 표시합니다.
+- 최초·후속은 WAHIS의 `IN`/`FUR` 또는 보고 차수(0=최초, 1 이상=후속)로 구분합니다.
+- HTML은 `weekly_html_reports` 테이블(최초 전송 시 자동 생성)에 90일 보관됩니다.
+  임의 토큰을 포함한 링크를 가진 사람이 열 수 있습니다. 만료된 데이터는 다음 전송 시 정리합니다.
+- 기존 Railway 앱의 HTML 서버가 `/weekly/<token>` 경로를 제공합니다.
+  워크플로와 Railway 양쪽에 최신 코드가 반영되어야 상세 버튼이 동작합니다.
+  기본 주소는 `https://wahis-slack-monitor-production.up.railway.app`이며,
+  변경 시 `WEEKLY_REPORT_BASE_URL` 또는 `STATS_REPORT_BASE_URL`을 설정합니다.
 - 조회 시점에 DB에 수집된 리포트가 대상입니다. 늦게 공개·수집된 과거 리포트는
   다음 주 집계로 넘어가지 않으므로 필요한 경우 해당 주를 수동 재실행합니다.
 - Actions의 **WAHIS Weekly Digest → Run workflow**에서 미리보기를 실행할 수
   있습니다. `dry_run` 기본값은 true이며, 실제 재전송하려면 false로 설정합니다.
   `week_ending`에 종료 목요일을 지정할 수 있습니다. 재실행은 요약을 다시 전송합니다.
+  미리보기 HTML은 실행 결과의 `weekly-html-preview` artifact에서 다운로드합니다.
 
 로컬 미리보기 (Slack 전송 없음):
 
 ```bash
 python weekly_main.py --dry-run
-python weekly_main.py --week-ending 2026-10-22 --dry-run
+python weekly_main.py --week-ending 2026-10-22 --dry-run --output data/weekly_preview.html
 ```
 
 ### Slack 조회·통계 봇 (Railway)

@@ -9,9 +9,10 @@ def main():
     parser = argparse.ArgumentParser(description='WAHIS 주간 신규 리포트 요약')
     parser.add_argument('--week-ending', help='집계 종료 목요일 (YYYY-MM-DD), 기본: 최근 목요일 09시')
     parser.add_argument('--dry-run', action='store_true', help='Slack 전송 없이 콘솔에 출력')
+    parser.add_argument('--output', help='상세 HTML을 저장할 로컬 파일 경로')
     args = parser.parse_args()
     start, end = weekly_window(week_ending=args.week_ending)
-    count = send_weekly_report(start, end, dry_run=args.dry_run)
+    count = send_weekly_report(start, end, dry_run=args.dry_run, output_path=args.output)
     print(f'Weekly digest complete: {count} reports')
 
 
