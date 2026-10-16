@@ -75,7 +75,7 @@ class WeeklyReportTests(unittest.TestCase):
         self.assertTrue(all(len(message) <= 2800 for message in messages))
         text = build_weekly_html(self.reports(200), start, end)
         for i in range(200):
-            self.assertEqual(text.count(f'Report {i} ↗'), 2)
+            self.assertEqual(text.count(f'Report {i} ↗'), 3)
         self.assertIn('신규 리포트가 없습니다.', build_weekly_messages([], start, end)[0])
 
     @patch('slack.weekly_report.save_weekly_html', return_value='a' * 43)

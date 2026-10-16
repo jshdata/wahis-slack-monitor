@@ -47,11 +47,12 @@ def report_row(report):
     return '<tr>' + ''.join(f'<td>{cell}</td>' for cell in cells) + '</tr>'
 
 
-def render_group(items, country, date):
+def render_group(items, country, date, disease):
     rows = ''.join(report_row(r) for r in sorted(items, key=local_date))
     return (
         f'<details open class="group" data-country="{escape(country, quote=True)}" '
-        f'data-date="{date}"><summary>{escape(country)} <span>{date}</span>'
+        f'data-date="{date}" data-disease="{escape(disease, quote=True)}">'
+        f'<summary>{escape(country)} <span>{date} · {escape(disease)}</span>'
         f'<small>{stats_text(items)}</small></summary><div class="scroll"><table>'
         '<thead><tr><th>제출 (KST)</th><th>질병</th><th>보고 구분</th><th>추가 발생</th>'
         '<th>아형</th><th>발생 사유</th><th>이벤트 상태</th><th>원문 리포트</th></tr></thead>'
@@ -63,24 +64,37 @@ def build_weekly_html(reports, start, end):
     counts = summary(reports)
     by_date = defaultdict(lambda: defaultdict(list))
     by_country = defaultdict(lambda: defaultdict(list))
+    by_disease = defaultdict(lambda: defaultdict(list))
     for report in reports:
         date = local_date(report).strftime('%Y-%m-%d')
-        by_date[date][report['country']].append(report)
-        by_country[report['country']][date].append(report)
+        country, disease = report['country'], report['disease']
+        by_date[date][(country, disease)].append(report)
+        by_country[country][(date, disease)].append(report)
+        by_disease[disease][(country, date)].append(report)
     panels = []
-    for name, groups in [('date', by_date), ('country', by_country)]:
+    for name, groups in [('date', by_date), ('country', by_country), ('disease', by_disease)]:
         sections = []
         for key in sorted(groups, reverse=name == 'date'):
             all_items = [r for items in groups[key].values() for r in items]
-            details = ''.join(render_group(items, subkey if name == 'date' else key,
-                                          key if name == 'date' else subkey)
-                              for subkey, items in sorted(groups[key].items(), reverse=name == 'country'))
+            details = []
+            for subkey, items in sorted(groups[key].items(), reverse=name == 'country'):
+                if name == 'date':
+                    country, disease = subkey
+                    date = key
+                elif name == 'country':
+                    date, disease = subkey
+                    country = key
+                else:
+                    country, date = subkey
+                    disease = key
+                details.append(render_group(items, country, date, disease))
             sections.append(f'<section class="section"><h2>{escape(key)}</h2>'
-                            f'<p class="muted">{stats_text(all_items)}</p>{details}</section>')
-        hidden = ' hidden' if name == 'country' else ''
+                            f'<p class="muted">{stats_text(all_items)}</p>{"".join(details)}</section>')
+        hidden = ' hidden' if name != 'date' else ''
         panels.append(f'<div id="{name}-view"{hidden}>' + ''.join(sections) + '</div>')
     countries = ''.join(f'<option>{escape(country)}</option>' for country in sorted(by_country))
     dates = ''.join(f'<option>{date}</option>' for date in sorted(by_date, reverse=True))
+    diseases = ''.join(f'<option>{escape(disease)}</option>' for disease in sorted(by_disease))
     cards = ''.join(f'<div class="card"><span>{label}</span><strong>{value:,}<small>{unit}</small>'
                     '</strong></div>' for label, value, unit in [
                         ('전체 리포트', counts['reports'], '건'), ('보고 국가', counts['countries'], '개'),
@@ -116,18 +130,21 @@ table{width:100%;border-collapse:collapse;min-width:1050px;font-size:13px}th,td{
         '신규 공개·수집이 늦어진 리포트는 조회 시점에 따라 달라질 수 있습니다.</div>'
         '<div class="toolbar"><div role="group" aria-label="묶음 기준">'
         '<button id="date-button" aria-pressed="true" onclick="setView(\'date\')">날짜별</button> '
-        '<button id="country-button" aria-pressed="false" onclick="setView(\'country\')">국가별</button></div>'
+        '<button id="country-button" aria-pressed="false" onclick="setView(\'country\')">국가별</button> '
+        '<button id="disease-button" aria-pressed="false" onclick="setView(\'disease\')">질병별</button></div>'
         f'<label>국가 <select id="country-filter"><option value="">전체 국가</option>{countries}</select></label>'
         f'<label>날짜 <select id="date-filter"><option value="">전체 날짜</option>{dates}</select></label>'
+        f'<label>질병 <select id="disease-filter"><option value="">전체 질병</option>{diseases}</select></label>'
         '<button onclick="setOpen(false)">모두 접기</button><button onclick="setOpen(true)">모두 펼치기</button>'
         '<small>상단 합계는 전체 조회기간 기준입니다.</small></div>'
         f'{empty}<p id="no-match" class="empty" hidden>선택한 조건에 해당하는 리포트가 없습니다.</p>'
         + ''.join(panels)
     ) + '''</main><script>
 let view='date';
-function setView(next){view=next;for(const name of ['date','country']){document.getElementById(name+'-view').hidden=name!==view;document.getElementById(name+'-button').setAttribute('aria-pressed',String(name===view))}filterGroups()}
-function filterGroups(){const country=document.getElementById('country-filter').value,date=document.getElementById('date-filter').value;let matches=0;document.querySelectorAll('.group').forEach(group=>{group.hidden=Boolean((country&&group.dataset.country!==country)||(date&&group.dataset.date!==date))});document.querySelectorAll('.section').forEach(section=>{section.hidden=![...section.querySelectorAll('.group')].some(group=>!group.hidden)});document.querySelectorAll('#'+view+'-view .group').forEach(group=>{if(!group.hidden)matches++});document.getElementById('no-match').hidden=Boolean(matches)||(!country&&!date)}
+function setView(next){view=next;for(const name of ['date','country','disease']){document.getElementById(name+'-view').hidden=name!==view;document.getElementById(name+'-button').setAttribute('aria-pressed',String(name===view))}filterGroups()}
+function filterGroups(){const country=document.getElementById('country-filter').value,date=document.getElementById('date-filter').value,disease=document.getElementById('disease-filter').value;let matches=0;document.querySelectorAll('.group').forEach(group=>{group.hidden=Boolean((country&&group.dataset.country!==country)||(date&&group.dataset.date!==date)||(disease&&group.dataset.disease!==disease))});document.querySelectorAll('.section').forEach(section=>{section.hidden=![...section.querySelectorAll('.group')].some(group=>!group.hidden)});document.querySelectorAll('#'+view+'-view .group').forEach(group=>{if(!group.hidden)matches++});document.getElementById('no-match').hidden=Boolean(matches)||(!country&&!date&&!disease)}
 function setOpen(open){document.querySelectorAll('#'+view+'-view .group').forEach(group=>group.open=open)}
 document.getElementById('country-filter').addEventListener('change',filterGroups);
 document.getElementById('date-filter').addEventListener('change',filterGroups);
+document.getElementById('disease-filter').addEventListener('change',filterGroups);
 </script></body></html>'''
