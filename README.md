@@ -159,6 +159,35 @@ cron-job 호출용 GitHub 토큰(fine-grained):
 - 권한: `Actions: Read and write`, `Metadata: Read`
 - 만료일: 2026-12-10 (만료 전 갱신 필요 → cron-job의 `Authorization` 헤더도 함께 교체)
 
+### 주간 신규 리포트 요약
+
+`.github/workflows/wahis-weekly.yml`은 매주 목요일 서울시간 오전 9시
+(`0 0 * * 4`, UTC)에 실행됩니다. 먼저 기존 모니터를 실행해 최신 리포트를
+수집한 다음, 기존 `SLACK_WEBHOOK_URL` 채널로 주간 요약을 전송합니다.
+기존 `SLACK_MONITOR_ENV`, `DB_SSL_CA_CERT` Secrets를 그대로 사용합니다.
+워크플로가 기본 브랜치에 반영되어야 자동 실행됩니다. GitHub Actions의
+대기열과 수집 소요시간에 따라 실제 전송시각은 늦어질 수 있습니다.
+
+- 집계 범위: 전주 목요일 09:00:00 이상 ~ 이번 목요일 09:00:00 미만 (KST).
+  즉, 이번 목요일 08:59:59까지이며 매주 누락이나 중복되는 경계가 없습니다.
+- 신규 여부는 DB 적재시각이 아닌 WAHIS `submission_date` 기준입니다.
+  전체 질병의 최초·후속 리포트를 포함하며, 발생건수와 구분해 표시합니다.
+- 전체 건수·국가·질병·이벤트 수, 질병별 건수, 국가·질병별 보고 유형과
+  발생 사유, 각 리포트의 제출시각·유형·상태·원문 링크를 제공합니다.
+- 리포트가 없는 주도 0건 알림을 보내고, 내용이 길면 여러 메시지로 나눕니다.
+- 조회 시점에 DB에 수집된 리포트가 대상입니다. 늦게 공개·수집된 과거 리포트는
+  다음 주 집계로 넘어가지 않으므로 필요한 경우 해당 주를 수동 재실행합니다.
+- Actions의 **WAHIS Weekly Digest → Run workflow**에서 미리보기를 실행할 수
+  있습니다. `dry_run` 기본값은 true이며, 실제 재전송하려면 false로 설정합니다.
+  `week_ending`에 종료 목요일을 지정할 수 있습니다. 재실행은 요약을 다시 전송합니다.
+
+로컬 미리보기 (Slack 전송 없음):
+
+```bash
+python weekly_main.py --dry-run
+python weekly_main.py --week-ending 2026-10-22 --dry-run
+```
+
 ### Slack 조회·통계 봇 (Railway)
 
 `python -m slack.query_app`을 Railway에서 상시 실행합니다. 로컬 `.env` 대신 Railway 환경변수를 사용하며, CA 인증서는 파일 대신 `DB_SSL_CA_CONTENT`에 내용을 넣습니다.

@@ -1,0 +1,61 @@
+name: WAHIS Weekly Digest
+
+on:
+  schedule:
+    # Thursday 00:00 UTC = Thursday 09:00 Asia/Seoul.
+    - cron: '0 0 * * 4'
+  workflow_dispatch:
+    inputs:
+      week_ending:
+        description: 'Optional closing Thursday (YYYY-MM-DD); resends that week'
+        required: false
+        type: string
+      dry_run:
+        description: 'Preview in workflow logs without sending to Slack'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+# Share the monitor lock while refreshing the database before the digest.
+concurrency:
+  group: wahis-monitor
+  cancel-in-progress: false
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DB_SSL_CA: ca.pem
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Load existing settings
+        env:
+          SLACK_MONITOR_ENV: ${{ secrets.SLACK_MONITOR_ENV }}
+          DB_SSL_CA_CERT: ${{ secrets.DB_SSL_CA_CERT }}
+        run: |
+          test -n "$SLACK_MONITOR_ENV"
+          test -n "$DB_SSL_CA_CERT"
+          printf '%s\n' "$SLACK_MONITOR_ENV" > .env
+          printf '%s\n' "$DB_SSL_CA_CERT" > ca.pem
+      - name: Refresh latest reports
+        if: github.event_name == 'schedule'
+        run: python main.py
+      - name: Send weekly digest
+        env:
+          WEEK_ENDING: ${{ inputs.week_ending }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          args=()
+          if [ -n "$WEEK_ENDING" ]; then args+=(--week-ending "$WEEK_ENDING"); fi
+          if [ "$DRY_RUN" = "true" ]; then args+=(--dry-run); fi
+          python weekly_main.py "${args[@]}"
