@@ -1044,6 +1044,15 @@ def build_stats_modal(
             },
 
             {
+                "type": "actions",
+                "elements": [{
+                    "type": "button",
+                    "action_id": "qia_import_open",
+                    "text": {"type": "plain_text", "text": "수입건수"},
+                }],
+            },
+
+            {
                 "type": "divider",
             },
 
@@ -3299,6 +3308,10 @@ register_neighbor_handlers(app, _STATS_MATRIX_REPORTS)
 from slack.dashboard_app import register_dashboard_handlers
 
 register_dashboard_handlers(app, _STATS_MATRIX_REPORTS)
+
+from slack.import_counts_app import register_import_counts_handlers
+
+register_import_counts_handlers(app, _STATS_MATRIX_REPORTS)
 
 if __name__ == "__main__":
 
