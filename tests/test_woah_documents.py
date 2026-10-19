@@ -5,6 +5,7 @@ import unittest
 import tempfile
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
+from slack_sdk.errors import SlackApiError
 
 from pypdf import PdfWriter
 
@@ -168,6 +169,19 @@ class SyncTests(unittest.TestCase):
 
 
 class SlackViewTests(unittest.TestCase):
+    @patch('slack.woah_docs.POOL')
+    def test_rejected_view_replaces_loading_and_logs_slack_reason(self, pool):
+        from slack.woah_docs import submit, modal, section
+        client = MagicMock()
+        client.views_update.side_effect = [SlackApiError('rejected',
+            {'error': 'invalid_blocks', 'response_metadata': {'messages': ['invalid block']}}), {}]
+        with self.assertLogs('slack.woah_docs', level='INFO') as logs:
+            submit(client, 'V123', lambda: modal([section('documents')]))
+            pool.submit.call_args.args[0]()
+        self.assertEqual(client.views_update.call_count, 2)
+        self.assertIn('표시하지 못했습니다', str(client.views_update.call_args.kwargs['view']))
+        self.assertIn('invalid_blocks', '\n'.join(logs.output))
+
     @patch('slack.woah_docs.woah_db')
     def test_manual_view_provides_prompt_and_links_without_api(self, db):
         db.get_document.return_value = dict(country='Germany', disease='HPAI', title='Declaration',

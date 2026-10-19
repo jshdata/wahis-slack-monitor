@@ -1,6 +1,7 @@
 """WOAH document modal. All responses stay in the requesting user's modal."""
 import json
 import logging
+import time
 from datetime import date
 from concurrent.futures import ThreadPoolExecutor
 from threading import BoundedSemaphore
@@ -11,6 +12,7 @@ from slack.multi_filters import multi_element, selected_value
 from woah.collector import DISEASES, validate_pdf_url
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 POOL = ThreadPoolExecutor(max_workers=3, thread_name_prefix='woah-docs')
 SLOTS = BoundedSemaphore(6)
 PAGE_SIZE = 8
@@ -214,7 +216,9 @@ def submit(client, view_id, task, metadata=None):
     if not SLOTS.acquire(blocking=False):
         client.views_update(view_id=view_id, view=modal([section('다른 문서를 처리 중입니다. 잠시 후 다시 조회해 주세요.')]))
         return
+    queued_at = time.monotonic()
     def work():
+        started_at = time.monotonic()
         try:
             try:
                 view = task()
@@ -227,9 +231,24 @@ def submit(client, view_id, task, metadata=None):
                 if metadata:
                     blocks.append({'type': 'actions', 'elements': [button('문서 목록으로', 'woah_docs_back', json.dumps(metadata))]})
                 view = modal(blocks)
+            logger.info('WOAH modal built: queue_seconds=%.3f build_seconds=%.3f blocks=%d',
+                        started_at - queued_at, time.monotonic() - started_at, len(view['blocks']))
             client.views_update(view_id=view_id, view=view)
         except Exception as exc:
-            logger.warning('WOAH view update failed: %s', type(exc).__name__)
+            response = getattr(exc, 'response', None)
+            error = response.get('error') if response is not None else None
+            details = (response.get('response_metadata') or {}).get('messages') if response is not None else None
+            logger.warning('WOAH view update failed: %s error=%s details=%s elapsed_seconds=%.3f',
+                           type(exc).__name__, error, details, time.monotonic() - started_at)
+            # A rejected view must not leave the loading modal spinning forever.
+            try:
+                client.views_update(view_id=view_id, view=modal([section(
+                    '문서 화면을 표시하지 못했습니다. 창을 닫고 다시 조회해 주세요. '
+                    '문제가 계속되면 관리자에게 알려주세요.')]))
+            except Exception as fallback:
+                fallback_response = getattr(fallback, 'response', None)
+                logger.warning('WOAH fallback update failed: %s error=%s', type(fallback).__name__,
+                               fallback_response.get('error') if fallback_response is not None else None)
         finally:
             SLOTS.release()
     POOL.submit(work)
