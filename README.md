@@ -283,3 +283,8 @@ Railway에서 `requirements.txt`의 Plotly 의존성과 최신 코드가 배포�
 
 - DB의 시간은 UTC로 저장되며, Slack 조회 시 KST로 변환합니다.
 - `.env`, `*.pem` 등 민감 파일은 `.gitignore`로 제외됩니다.
+
+# PDF object storage
+
+For setup and migration, see the [Railway PDF guide](docs/railway-pdf-storage.md)
+or the [Cloudflare R2 PDF guide](docs/r2-pdf-storage.md).

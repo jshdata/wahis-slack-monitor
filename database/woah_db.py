@@ -6,6 +6,7 @@ from contextlib import contextmanager
 import pymysql
 
 from database.db import get_connection
+from woah import pdf_storage
 
 DDL = [
     """CREATE TABLE IF NOT EXISTS woah_documents (
@@ -94,17 +95,23 @@ def upsert_document(doc):
 
 def save_pdf(document_id, pdf, pages):
     digest = hashlib.sha256(pdf).hexdigest()
+    # Empty bytes mark an R2 object at woah/pdf/<sha256>.pdf. Existing blobs
+    # remain readable without R2, allowing a staged deployment and migration.
+    stored_pdf = pdf
+    if pdf_storage.enabled():
+        pdf_storage.store_pdf(pdf)
+        stored_pdf = b''
     with connection() as conn, conn.cursor() as cur:
         cur.execute('SELECT @@max_allowed_packet')
         packet = cur.fetchone()[0]
         # PyMySQL escapes bytes in SQL; leave room for escaping and page text.
-        if len(pdf) * 2 + len(json.dumps(pages).encode()) + 65536 > packet:
+        if len(stored_pdf) * 2 + len(json.dumps(pages).encode()) + 65536 > packet:
             raise ValueError('PDF exceeds MySQL max_allowed_packet; increase the server setting')
         cur.execute("""INSERT INTO woah_document_versions
             (document_id,sha256,pdf_data,byte_size,page_count,pages_json,extraction_status)
             VALUES (%s,%s,%s,%s,%s,%s,%s)
             ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)""",
-            (document_id, digest, pdf, len(pdf), len(pages), json.dumps(pages),
+            (document_id, digest, stored_pdf, len(pdf), len(pages), json.dumps(pages),
              'TEXT' if any(p['text'].strip() for p in pages) else 'IMAGE_ONLY'))
         version_id = cur.lastrowid
         cur.execute("""UPDATE woah_documents SET latest_version_id=%s,
@@ -157,9 +164,12 @@ def list_declaration_countries(disease=None):
 
 
 def get_document(document_id, include_pdf=False):
-    columns = ',v.pdf_data' if include_pdf else ''
+    columns = ',v.pdf_data,v.sha256' if include_pdf else ''
     with connection() as conn, conn.cursor(pymysql.cursors.DictCursor) as cur:
         cur.execute("""SELECT d.*,v.page_count,v.pages_json,v.extraction_status""" + columns + """
             FROM woah_documents d LEFT JOIN woah_document_versions v ON v.id=d.latest_version_id
             WHERE d.id=%s""", (document_id,))
-        return cur.fetchone()
+        doc = cur.fetchone()
+    if include_pdf and doc and doc.get('sha256') and not doc.get('pdf_data'):
+        doc['pdf_data'] = pdf_storage.read_pdf(doc['sha256'])
+    return doc
