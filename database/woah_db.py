@@ -1,12 +1,19 @@
 """Additive MySQL tables. PDF bytes are never loaded by list queries."""
 import hashlib
 import json
+import time
+from copy import deepcopy
+from threading import Lock
 from contextlib import contextmanager
 
 import pymysql
 
 from database.db import get_connection
 from woah import pdf_storage
+
+_overview_cache = {}
+_overview_lock = Lock()
+OVERVIEW_TTL = 30
 
 DDL = [
     """CREATE TABLE IF NOT EXISTS woah_documents (
@@ -133,14 +140,29 @@ def record_run(disease, status, found=0, saved=0, failed=0, error=None):
             VALUES (%s,%s,%s,%s,%s,%s)""", (disease,status,found,saved,failed,error))
 
 
-def list_documents(disease=None):
+def list_documents(disease=None, include_run=False):
+    if include_run:
+        with _overview_lock:
+            cached = _overview_cache.get(disease)
+            if cached and time.monotonic() < cached[0]:
+                return deepcopy(cached[1])
     with connection() as conn, conn.cursor(pymysql.cursors.DictCursor) as cur:
         cur.execute("""SELECT d.id,d.source_key,d.disease,d.country,d.title,d.published_date,
             d.declaration_status,d.download_status,d.last_seen_at,d.pdf_url,
             d.latest_version_id,v.page_count,v.byte_size
             FROM woah_documents d LEFT JOIN woah_document_versions v ON v.id=d.latest_version_id
             WHERE (%s IS NULL OR d.disease=%s) ORDER BY d.country,d.id""", (disease,disease))
-        return cur.fetchall()
+        docs = cur.fetchall()
+        if not include_run:
+            return docs
+        run = None
+        if disease:
+            cur.execute('SELECT * FROM woah_collection_runs WHERE disease=%s ORDER BY id DESC LIMIT 1', (disease,))
+            run = cur.fetchone()
+    result = (docs, run)
+    with _overview_lock:
+        _overview_cache[disease] = (time.monotonic() + OVERVIEW_TTL, deepcopy(result))
+    return result
 
 
 def latest_run(disease):

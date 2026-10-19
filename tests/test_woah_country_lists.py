@@ -37,7 +37,7 @@ class CountryListTests(unittest.TestCase):
 
     @patch('slack.woah_docs.woah_db')
     def test_filters_and_empty_date_defaults(self, db):
-        db.list_documents.return_value = []
+        db.list_documents.return_value = ([], None)
         db.latest_run.return_value = None
         view = list_view()
         dates = [e for b in view['blocks'] for e in b.get('elements', [])

@@ -63,9 +63,8 @@ def list_view(disease='HPAI', page=0, start_date=None, end_date=None):
     codes = selection_values(disease) or list(DISEASES)
     if any(code not in DISEASES for code in codes):
         raise ValueError('지원하지 않는 질병입니다.')
-    source = woah_db.list_documents(codes[0] if len(codes) == 1 else None)
+    source, run = woah_db.list_documents(codes[0] if len(codes) == 1 else None, include_run=True)
     docs, unknown = filtered_documents([doc for doc in source if doc['disease'] in codes], start_date, end_date)
-    run = woah_db.latest_run(codes[0]) if len(codes) == 1 else None
     pages = max(1, (len(docs) + PAGE_SIZE - 1) // PAGE_SIZE)
     page = max(0, min(page, pages - 1))
     options = [{'text': {'type': 'plain_text', 'text': code}, 'value': code} for code in DISEASES]

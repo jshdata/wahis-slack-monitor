@@ -8,6 +8,24 @@ from database import woah_db
 
 
 class PdfStorageTests(unittest.TestCase):
+    @patch('database.woah_db.time.monotonic')
+    @patch('database.woah_db.connection')
+    def test_overview_reuses_metadata_and_refreshes_after_expiry(self, connection, clock):
+        with patch.dict(woah_db._overview_cache, {}, clear=True):
+            clock.return_value = 100
+            cursor = connection.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
+            cursor.fetchall.return_value = [{'id': 1}]
+            cursor.fetchone.return_value = {'status': 'SUCCESS'}
+            first = woah_db.list_documents('HPAI', include_run=True)
+            first[0][0]['id'] = 999
+            self.assertEqual(woah_db.list_documents('HPAI', include_run=True)[0][0]['id'], 1)
+            self.assertEqual(connection.call_count, 1)
+            self.assertEqual(cursor.execute.call_count, 2)
+            self.assertNotIn('pdf_data', cursor.execute.call_args_list[0].args[0])
+            clock.return_value = 131
+            woah_db.list_documents('HPAI', include_run=True)
+            self.assertEqual(connection.call_count, 2)
+
     @patch('boto3.client')
     def test_railway_client_uses_s3_credentials_and_virtual_urls(self, factory):
         settings = {'WOAH_PDF_STORAGE': 'railway',

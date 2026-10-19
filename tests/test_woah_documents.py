@@ -185,10 +185,10 @@ class SlackViewTests(unittest.TestCase):
     @patch('slack.woah_docs.woah_db')
     def test_paginated_list_does_not_embed_pdf_bytes(self, db):
         db.latest_run.return_value = None
-        db.list_documents.return_value = [dict(
+        db.list_documents.return_value = ([dict(
             id=i, disease='HPAI', country=f'Country {i}', title='Declaration',
             published_date='2026-10-12', download_status='READY', page_count=10,
-            latest_version_id=i + 1, pdf_url='https://www.woah.org/a.pdf') for i in range(25)]
+            latest_version_id=i + 1, pdf_url='https://www.woah.org/a.pdf') for i in range(25)], None)
         view = list_view('HPAI', 1)
         text = json.dumps(view)
         self.assertIn('Country 8', text)
@@ -202,6 +202,7 @@ class SlackViewTests(unittest.TestCase):
         db.list_documents.return_value = []
         db.latest_run.return_value = dict(status='COLLECTION_FAILED', checked_at='2026-10-15',
                                          found_count=0, saved_count=0, failed_count=0)
+        db.list_documents.side_effect = lambda *args, **kwargs: ([], db.latest_run.return_value)
         failed = json.dumps(list_view('FMD'), ensure_ascii=False)
         self.assertIn('최신 목록 수집에 실패', failed)
         self.assertNotIn('공개 문서를 찾지 못했습니다', failed)
