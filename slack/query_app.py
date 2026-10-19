@@ -1024,6 +1024,10 @@ def build_stats_modal(
                 "type": "actions",
                 "elements": [{
                     "type": "button",
+                    "action_id": "control_measures_open",
+                    "text": {"type": "plain_text", "text": "방역 조치 조회"},
+                }, {
+                    "type": "button",
                     "action_id": "woah_docs_open",
                     "text": {"type": "plain_text", "text": "WOAH 자체 청정 선언 PDF 보기"},
                     "value": "HPAI",
@@ -3302,6 +3306,10 @@ def collect_disease_stats(client, body, disease, region, country, db_region, db_
 from slack.woah_docs import register_woah_handlers
 
 register_woah_handlers(app)
+
+from slack.control_measures_app import register_control_handlers
+
+register_control_handlers(app)
 
 from slack.presence_app import register_presence_handlers
 
