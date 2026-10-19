@@ -40,6 +40,11 @@ class CountryListTests(unittest.TestCase):
         db.list_documents.return_value = ([], None)
         db.latest_run.return_value = None
         view = list_view()
+        selector = view['blocks'][1]
+        self.assertEqual(selector['type'], 'section')
+        self.assertEqual(selector['accessory']['type'], 'multi_static_select')
+        self.assertEqual(selector['accessory']['action_id'], 'woah_docs_disease')
+        self.assertEqual([option['value'] for option in selector['accessory']['initial_options']], ['HPAI'])
         dates = [e for b in view['blocks'] for e in b.get('elements', [])
                  if e.get('type') == 'datepicker']
         self.assertEqual(len(dates), 2)

@@ -72,12 +72,14 @@ def list_view(disease='HPAI', page=0, start_date=None, end_date=None):
     options = [{'text': {'type': 'plain_text', 'text': code}, 'value': code} for code in DISEASES]
     meta = {'d': disease, 'p': page, 's': start_date, 'e': end_date}
     blocks = [section('*국가가 제출한 자체 청정 선언입니다. WOAH 공식 인정과 구분됩니다.*'),
-              {'type': 'actions', 'elements': [{'type': 'multi_static_select',
+              {'type': 'section', 'block_id': 'woah_disease',
+               'text': {'type': 'mrkdwn', 'text': '*질병 선택*'},
+               'accessory': {'type': 'multi_static_select',
                'action_id': 'woah_docs_disease', 'options': options,
                'placeholder': {'type': 'plain_text', 'text': '전체 · 질병 검색 및 복수 선택'},
-               'initial_options': [option for option in options if option['value'] in selection_values(disease)]}]}]
-    if not blocks[1]['elements'][0]['initial_options']:
-        blocks[1]['elements'][0].pop('initial_options')
+               'initial_options': [option for option in options if option['value'] in selection_values(disease)]}}]
+    if not blocks[1]['accessory']['initial_options']:
+        blocks[1]['accessory'].pop('initial_options')
     for block_id, label, selected in (('woah_start', '시작 날짜 (비워두면 전체)', start_date),
                                       ('woah_end', '종료 날짜 (비워두면 전체)', end_date)):
         element = {'type': 'datepicker', 'action_id': 'woah_docs_date',
