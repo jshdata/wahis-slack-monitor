@@ -8,6 +8,7 @@ from slack.filter_state import encode_filters, decode_filters
 from dotenv import load_dotenv
 
 from slack.stats_report import build_matrix_report
+from slack.duration_report import build_duration_report
 from slack.stats_report_server import REPORT_TTL_SECONDS, report_url, start_report_server
 import time
 
@@ -2027,7 +2028,7 @@ def post_long_message(
 
 def build_yearly_duration_messages(
     disease_code, disease, region_label, country_label,
-    start_date, end_date, gap_days, region=None, country=None,
+    start_date, end_date, gap_days, region=None, country=None, report_items=None,
 ):
     """Calculate observation periods separately for each calendar year."""
     first_year = datetime.fromisoformat(start_date).year
@@ -2043,6 +2044,10 @@ def build_yearly_duration_messages(
             country=country,
             gap_days=gap_days,
         )
+        if report_items is not None:
+            report_items.append({'year': year, 'disease': disease, 'region_label': region_label,
+                                 'country_label': country_label, 'start_date': year_start,
+                                 'end_date': year_end, 'gap_days': gap_days, 'rows': list(rows)})
         yield from build_duration_messages(
             rows=rows,
             disease=disease,
@@ -2653,6 +2658,7 @@ class StatsModalCollector:
     """기존 통계 메시지 생성기를 변경하지 않고 결과를 수집한다."""
     def __init__(self):
         self.items = []
+        self.duration_items = []
 
     def chat_postMessage(self, channel, text, **kwargs):
         blocks = kwargs.get("blocks") or []
@@ -2757,7 +2763,7 @@ def build_stats_result_modal(key, page=0):
         if url:
             blocks.append({"type": "actions", "elements": [{
                 "type": "button", "action_id": "stats_matrix_open",
-                "text": {"type": "plain_text", "text": "큰 표 열기"},
+                "text": {"type": "plain_text", "text": "HTML 표 보기" if _STATS_MATRIX_REPORTS[key].get("kind") == "duration" else "큰 표 열기"},
                 "url": url}]})
         else:
             blocks.append({"type": "section", "text": {"type": "mrkdwn",
@@ -2785,6 +2791,9 @@ def show_stats_result_modal(client, body, collector):
     if any(item["kind"] == "matrix" and item.get("rows") for item in collector.items):
         _STATS_MATRIX_REPORTS[key] = {"html": build_matrix_report(collector.items),
                                       "expires_at": time.time() + REPORT_TTL_SECONDS}
+    if collector.duration_items:
+        _STATS_MATRIX_REPORTS[key] = {"html": build_duration_report(collector.duration_items),
+                                    "kind": "duration", "expires_at": time.time() + REPORT_TTL_SECONDS}
     # 오래된 결과의 메모리 사용량 제한
     while len(_STATS_MODAL_RESULTS) > 30:
         expired_key = next(iter(_STATS_MODAL_RESULTS))
@@ -3015,6 +3024,7 @@ def collect_disease_stats(client, body, disease, region, country, db_region, db_
                     gap_days=gap_days,
                     region=db_region,
                     country=db_country,
+                    report_items=client.duration_items if isinstance(client, StatsModalCollector) else None,
                 ):
 
                     client.chat_postMessage(

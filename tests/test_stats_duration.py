@@ -47,6 +47,69 @@ class YearlyDurationTests(unittest.TestCase):
                 end_date=f'{year}-12-31', region='Asia', country='Japan', gap_days=28))
         self.assertTrue(all('조회된 outbreak가 없습니다.' in message for message in messages))
 
+    def test_html_rows_share_annual_calculation_and_keep_full_country_names(self):
+        name = 'A country name longer than twenty six characters'
+        self.query.return_value = [(name, 'Asia', 7, 2, 60)]
+        items = []
+        list(self.render('ASF', 'ASF', 'Asia', '전체', '2023-01-01', '2025-12-31', 28,
+                         report_items=items))
+        self.assertEqual(self.query.call_count, 3)
+        self.assertEqual([item['year'] for item in items], [2023, 2024, 2025])
+        self.assertEqual(items[1]['rows'][0], (name, 'Asia', 7, 2, 60))
+
+
+class DurationHtmlTests(unittest.TestCase):
+    def test_duration_result_modal_has_html_link_using_already_computed_rows(self):
+        import json
+        import time
+        from types import SimpleNamespace
+        from slack.duration_report import build_duration_report
+        source = ast.parse(Path('slack/query_app.py').read_text(encoding='utf-8'))
+        names = {'StatsModalCollector', '_stats_modal_pages', '_stats_text_chunks',
+                 '_matrix_table_chunks', 'build_stats_result_modal', 'show_stats_result_modal'}
+        nodes = [n for n in source.body if isinstance(n, (ast.FunctionDef, ast.ClassDef)) and n.name in names]
+        scope = {'json': json, 'time': time, 'uuid4': lambda: SimpleNamespace(hex='test'),
+                 '_STATS_MODAL_RESULTS': {}, '_STATS_MATRIX_REPORTS': {}, 'REPORT_TTL_SECONDS': 3600,
+                 'report_url': lambda key: 'https://example.test/reports/' + key,
+                 'build_duration_report': build_duration_report}
+        exec(compile(ast.Module(body=nodes, type_ignores=[]), '<duration-modal>', 'exec'), scope)
+        collector = scope['StatsModalCollector']()
+        collector.items = [{'kind': 'text', 'text': 'Annual durations'}]
+        collector.duration_items = self.items()
+        client = Mock()
+        scope['show_stats_result_modal'](client, {'view': {'id': 'V1'}}, collector)
+        view = client.views_update.call_args.kwargs['view']
+        links = [e for b in view['blocks'] for e in b.get('elements', []) if e.get('url')]
+        self.assertEqual(links[0]['text']['text'], 'HTML 표 보기')
+        self.assertIn('2025', scope['_STATS_MATRIX_REPORTS']['test']['html'])
+
+    def items(self):
+        return [dict(year=year, disease=disease, region_label='전체', country_label='전체',
+                     start_date=f'{year}-01-01', end_date=f'{year}-12-31', gap_days=28,
+                     rows=[('United States of America <test>', 'America', 12, 3, 28)])
+                for disease in ('HPAI 가금', 'HPAI 가금 외') for year in (2023, 2024, 2025)]
+
+    def test_all_years_scopes_and_leap_year_ratios_are_copyable(self):
+        from slack.duration_report import build_duration_report
+        html = build_duration_report(self.items())
+        self.assertEqual(html.count('<tr>'), 7)
+        self.assertIn('United States of America &lt;test&gt;', html)
+        self.assertNotIn('America <test>', html)
+        self.assertIn('<td>366</td>', html)
+        self.assertIn('HPAI 가금 외', html)
+        self.assertIn('navigator.clipboard.writeText(tsv())', html)
+        self.assertIn('wahis-yearly-observation.tsv', html)
+        self.assertIn(r"join('\t')", html)
+
+    def test_empty_result_and_partial_year_denominator(self):
+        from slack.duration_report import build_duration_report
+        items = self.items()[:1]
+        items[0].update(start_date='2023-12-20', end_date='2023-12-31',
+                        rows=[('Japan', 'Asia', 1, 1, 10)])
+        self.assertIn('<td>83.3</td>', build_duration_report(items))
+        items[0]['rows'] = []
+        self.assertIn('조회 결과가 없습니다', build_duration_report(items))
+
 
 if __name__ == '__main__':
     unittest.main()
