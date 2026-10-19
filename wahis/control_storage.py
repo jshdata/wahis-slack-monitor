@@ -150,7 +150,7 @@ class _CsvStream:
             self.raw.close()
 
 
-def query(filters, page=0):
+def query(filters, page=0, page_size=PAGE_SIZE):
     code = filters.get('disease', 'HPAI')
     if code not in CODES:
         raise ValueError('지원하지 않는 질병입니다.')
@@ -159,12 +159,13 @@ def query(filters, page=0):
     conn = sqlite3.connect(path.as_uri() + '?mode=ro', uri=True)
     conn.row_factory = sqlite3.Row
     try:
-        return query_rows(conn, filters, page, current.get('snapshot_at'))
+        return query_rows(conn, filters, page, current.get('snapshot_at'), page_size)
     finally:
         conn.close()
 
 
-def query_rows(conn, filters, page=0, snapshot_at=None):
+def query_rows(conn, filters, page=0, snapshot_at=None, page_size=PAGE_SIZE):
+    page_size = max(1, min(int(page_size), 100))
     where, args = ['1=1'], []
     year = filters.get('year', 'all')
     if year != 'all':
@@ -185,8 +186,8 @@ def query_rows(conn, filters, page=0, snapshot_at=None):
         where.append("measure='Official vaccination'")
     condition = ' AND '.join(where)
     count = conn.execute('SELECT COUNT(*) FROM measures WHERE ' + condition, args).fetchone()[0]
-    page = max(0, min(int(page), max(0, (count - 1) // PAGE_SIZE)))
+    page = max(0, min(int(page), max(0, (count - 1) // page_size)))
     rows = conn.execute('SELECT * FROM measures WHERE ' + condition +
                         ' ORDER BY year DESC,semester DESC,country,disease,species,measure,region,category LIMIT ? OFFSET ?',
-                        [*args, PAGE_SIZE, page * PAGE_SIZE]).fetchall()
+                        [*args, page_size, page * page_size]).fetchall()
     return {'rows': [dict(row) for row in rows], 'total': count, 'page': page, 'snapshot_at': snapshot_at}

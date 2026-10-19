@@ -3325,7 +3325,7 @@ register_woah_handlers(app)
 
 from slack.control_measures_app import register_control_handlers
 
-register_control_handlers(app)
+register_control_handlers(app, _STATS_MATRIX_REPORTS)
 
 from slack.presence_app import register_presence_handlers
 

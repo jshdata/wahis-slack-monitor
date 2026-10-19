@@ -61,6 +61,7 @@ class ReportServerTests(unittest.TestCase):
 
     def test_reports_expiration_and_health(self):
         reports = {'valid': {'html': '<html>Matrix</html>', 'expires_at': time.time() + 60},
+                   'dynamic': {'render': lambda params: 'page=' + params.get('page', ['0'])[0], 'expires_at': time.time() + 60},
                    'expired': {'html': 'expired', 'expires_at': time.time() - 1}}
         server = create_report_server(reports, host='127.0.0.1', port=0)
         worker = Thread(target=server.serve_forever, daemon=True)
@@ -73,6 +74,8 @@ class ReportServerTests(unittest.TestCase):
                 self.assertEqual(response.headers['Referrer-Policy'], 'no-referrer')
             with urlopen(base + '/health', timeout=3) as response:
                 self.assertEqual(response.read(), b'ok')
+            with urlopen(base + '/reports/dynamic?page=3', timeout=3) as response:
+                self.assertEqual(response.read(), b'page=3')
             for path in ('/reports/expired', '/reports/missing', '/reports/../valid'):
                 with self.assertRaises(HTTPError) as error:
                     urlopen(base + path, timeout=3)

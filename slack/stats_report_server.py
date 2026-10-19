@@ -4,7 +4,8 @@ import os
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, parse_qs
+import logging
 
 from database.weekly_report_db import load_weekly_html
 
@@ -52,7 +53,12 @@ def create_report_server(reports, host='0.0.0.0', port=8765):
                 key = path.removeprefix('/reports/') if path.startswith('/reports/') else ''
                 report = reports.get(key)
                 if report and time.time() < report['expires_at']:
-                    content, status = report['html'].encode('utf-8'), 200
+                    try:
+                        html = report['render'](parse_qs(urlsplit(self.path).query)) if 'render' in report else report['html']
+                        content, status = html.encode('utf-8'), 200
+                    except Exception as error:
+                        logging.getLogger(__name__).warning('HTML report rendering failed: %s', type(error).__name__)
+                        content, status = '표를 불러오지 못했습니다. 잠시 후 새로고침해 주세요.'.encode('utf-8'), 503
                 else:
                     content = '표 링크가 만료되었거나 존재하지 않습니다. Slack에서 다시 조회해주세요.'.encode('utf-8')
                     status = 404

@@ -2,10 +2,14 @@
 from datetime import date
 import json
 import logging
+import time
+from uuid import uuid4
 from concurrent.futures import ThreadPoolExecutor
 from threading import BoundedSemaphore
 
 from wahis import control_storage
+from slack.stats_report_server import report_url, REPORT_TTL_SECONDS
+from slack.control_measures_report import build_report
 
 logger = logging.getLogger(__name__)
 POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix='control-measures')
@@ -54,7 +58,7 @@ def settings(filters=None):
     return view
 
 
-def result_view(filters, page=0):
+def result_view(filters, page=0, html_url=None):
     result = control_storage.query(filters, page)
     page, count = result['page'], result['total']
     last = max(1, (count + control_storage.PAGE_SIZE - 1) // control_storage.PAGE_SIZE)
@@ -69,6 +73,15 @@ def result_view(filters, page=0):
               section(f'자료 수집 완료: {text(result["snapshot_at"])}\n'
                       '보고된 조치 항목이며 실제 시행 횟수나 접종 마릿수가 아닙니다. '
                       'HPAI는 가금·가금 외 보고를 구분해 표시합니다.')]
+    html_button = {'type': 'button', 'action_id': 'control_html',
+                   'text': {'type': 'plain_text', 'text': 'HTML 표 보기'},
+                   'value': json.dumps({'filters': filters, 'page': page})}
+    if html_url:
+        html_button.update(action_id='control_html_link', url=html_url)
+        html_button.pop('value')
+    blocks.append({'type': 'actions', 'elements': [html_button]})
+    if html_url:
+        blocks.append(section('선택한 조건의 전체 결과를 HTML 표에서 볼 수 있습니다. 링크는 1시간 동안 유효합니다.'))
     if not count:
         blocks.append(section('해당 조건의 보고 항목이 없습니다. 조치 미시행을 뜻하지 않습니다.'))
     for row in result['rows']:
@@ -115,7 +128,32 @@ def submit(client, view_id, task):
         raise
 
 
-def register_control_handlers(app):
+def register_control_handlers(app, reports):
+    @app.action('control_html_link')
+    def acknowledge_html(ack):
+        ack()
+
+    @app.action('control_html')
+    def open_html(ack, body, client):
+        ack()
+        data = json.loads(body['actions'][0]['value'])
+        def prepare():
+            key = uuid4().hex
+            url = report_url(key)
+            if not url:
+                return modal([section('HTML 표 주소가 설정되지 않았습니다. Railway 공개 도메인 설정을 확인해주세요.')])
+            filters = dict(data['filters'])
+            now = time.time()
+            for old in list(reports):
+                if reports.get(old, {}).get('expires_at', 0) <= now:
+                    reports.pop(old, None)
+            reports[key] = {'render': lambda params: build_report(filters, params),
+                            'expires_at': now + REPORT_TTL_SECONDS}
+            while len(reports) > 30:
+                reports.pop(next(iter(reports)), None)
+            return result_view(filters, data.get('page', 0), html_url=url)
+        submit(client, body['view']['id'], prepare)
+
     @app.action('control_measures_open')
     def open_settings(ack, body, client):
         ack()
