@@ -385,6 +385,10 @@ def insert_disease_report(event, notify_slack=True):
             )
         )
 
+        if notify_slack:
+            from ntfy_notifier import enqueue
+            enqueue(cursor, event)
+
         conn.commit()
 
         print(

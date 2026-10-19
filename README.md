@@ -288,3 +288,20 @@ Railway에서 `requirements.txt`의 Plotly 의존성과 최신 코드가 배포�
 
 For setup and migration, see the [Railway PDF guide](docs/railway-pdf-storage.md)
 or the [Cloudflare R2 PDF guide](docs/r2-pdf-storage.md).
+
+## ntfy 동시 알림
+
+기존 `SLACK_MONITOR_ENV` GitHub Actions secret의 마지막에 다음 줄을 추가하면
+Slack과 ntfy에서 신규 WAHIS 보고 알림을 함께 받을 수 있습니다.
+
+```dotenv
+NTFY_TOPIC_URL=https://ntfy.sh/여기에-구독한-주제
+# 인증이 필요한 서버/토픽에서만 설정
+# NTFY_TOKEN=토큰
+```
+
+로컬 실행은 `.env`에 같은 설정을 추가합니다. 설정이 없으면 ntfy는 비활성화됩니다.
+첫 실행에서 `ntfy_outbox` 테이블을 자동 생성하므로 DB 계정에 CREATE TABLE 권한이
+필요합니다. 활성화 이후 새로 저장되는 보고만 전송하며 과거 보고를 일괄 발송하지 않습니다.
+Slack 전송 상태와 별도로 관리하며, 실패 건은 다음 실행에서 재시도합니다(최대 5회).
+전송 성공 직후 DB 기록이 실패하면 중복 수신할 수 있습니다.

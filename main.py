@@ -1,5 +1,6 @@
 import time
 import traceback
+import ntfy_notifier
 
 from slack.error_notifier import ErrorReporter
 
@@ -488,6 +489,10 @@ def recover_unsent_slack_alerts():
 
 def main():
 
+    if ntfy_notifier.enabled():
+        ERRORS.call('ntfy 전송 테이블 준비', ntfy_notifier.initialize)
+        ERRORS.call('ntfy 미전송 알림 복구', ntfy_notifier.deliver_pending, ERRORS)
+
     print(
         "=" * 50
     )
@@ -723,6 +728,8 @@ def main():
             else:
 
                 slack_fail_count += 1
+
+            ERRORS.call('ntfy 신규 알림 전송', ntfy_notifier.deliver_pending, ERRORS)
 
             new_events.append(
                 event
