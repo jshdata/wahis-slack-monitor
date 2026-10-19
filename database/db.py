@@ -103,6 +103,21 @@ def get_ssl_ca_path():
 # DB 연결
 # =========================================================
 
+def validate_database_settings():
+    required = ('DB_HOST', 'DB_PORT', 'DB_USER', 'DB_PASSWORD', 'DB_NAME')
+    missing = [name for name in required if not os.getenv(name)]
+    if missing:
+        raise ValueError('Missing database settings: ' + ', '.join(missing) +
+                         '. Restore the DB_* settings in SLACK_MONITOR_ENV for GitHub Actions.')
+    try:
+        port = int(os.environ['DB_PORT'])
+    except ValueError:
+        raise ValueError('DB_PORT must be an integer from 1 to 65535') from None
+    if not 1 <= port <= 65535:
+        raise ValueError('DB_PORT must be an integer from 1 to 65535')
+    return port
+
+
 def get_connection():
     """
     Aiven MySQL 연결
@@ -120,11 +135,12 @@ def get_connection():
     read/write timeout은 120초로 설정한다.
     """
 
+    port = validate_database_settings()
     ssl_ca_path = get_ssl_ca_path()
 
     return pymysql.connect(
         host=os.getenv("DB_HOST"),
-        port=int(os.getenv("DB_PORT")),
+        port=port,
         user=os.getenv("DB_USER"),
         password=os.getenv("DB_PASSWORD"),
         database=os.getenv("DB_NAME"),

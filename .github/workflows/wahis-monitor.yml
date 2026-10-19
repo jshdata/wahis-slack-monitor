@@ -65,19 +65,7 @@ jobs:
           openssl x509 -in ca.pem -noout
 
       - name: Validate database configuration
-        run: |
-          python - <<'PY'
-          import os
-          from dotenv import load_dotenv
-          load_dotenv('.env')
-          required = ('DB_HOST', 'DB_PORT', 'DB_USER', 'DB_PASSWORD', 'DB_NAME')
-          missing = [name for name in required if not os.getenv(name)]
-          if missing:
-              raise SystemExit('Missing database settings in SLACK_MONITOR_ENV: ' + ', '.join(missing))
-          from database.db import get_ssl_ca_path
-          get_ssl_ca_path()
-          print('Database settings and SSL CA path validated')
-          PY
+        run: python -m database.check_config
 
       # -------------------------------------------------
       # 6. WAHIS 모니터 실행

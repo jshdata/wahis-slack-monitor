@@ -3,6 +3,7 @@
 *.key
 
 .env
+.env.github-actions
 __pycache__/
 *.pyc
 .venv/

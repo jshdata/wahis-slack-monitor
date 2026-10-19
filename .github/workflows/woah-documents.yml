@@ -51,6 +51,10 @@ jobs:
           test -n "$DB_SSL_CA_CERT" || { echo 'Missing DB_SSL_CA_CERT secret'; exit 1; }
           printf '%s\n' "$SLACK_MONITOR_ENV" > .env
           printf '%s\n' "$DB_SSL_CA_CERT" > ca.pem
+          openssl x509 -in ca.pem -noout
+
+      - name: Validate database configuration
+        run: python -m database.check_config
 
       - name: Collect WOAH PDFs
         env:
