@@ -92,13 +92,15 @@ class DurationHtmlTests(unittest.TestCase):
     def test_all_years_scopes_and_leap_year_ratios_are_copyable(self):
         from slack.duration_report import build_duration_report
         html = build_duration_report(self.items())
-        self.assertEqual(html.count('<tr>'), 7)
+        self.assertEqual(html.count('<tr>'), 8)
+        self.assertEqual(html.count('<section class="report-group"'), 2)
         self.assertIn('United States of America &lt;test&gt;', html)
         self.assertNotIn('America <test>', html)
         self.assertIn('<td>366</td>', html)
         self.assertIn('HPAI 가금 외', html)
         self.assertIn('navigator.clipboard.writeText(tsv())', html)
-        self.assertIn('wahis-yearly-observation.tsv', html)
+        self.assertIn('wahis-yearly-observation-poultry.tsv', html)
+        self.assertIn('wahis-yearly-observation-non-poultry.tsv', html)
         self.assertIn(r"join('\t')", html)
 
     def test_empty_result_and_partial_year_denominator(self):

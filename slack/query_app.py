@@ -2045,7 +2045,7 @@ def build_yearly_duration_messages(
             gap_days=gap_days,
         )
         if report_items is not None:
-            report_items.append({'year': year, 'disease': disease, 'region_label': region_label,
+            report_items.append({'year': year, 'disease': disease, 'disease_code': disease_code, 'region_label': region_label,
                                  'country_label': country_label, 'start_date': year_start,
                                  'end_date': year_end, 'gap_days': gap_days, 'rows': list(rows)})
         yield from build_duration_messages(
