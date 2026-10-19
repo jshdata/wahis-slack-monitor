@@ -991,7 +991,7 @@ def build_stats_modal(
 
         "title": {
             "type": "plain_text",
-            "text": "WAHIS 발생 통계",
+            "text": "통계·자료 조회",
         },
 
         "submit": {
@@ -1014,9 +1014,8 @@ def build_stats_modal(
                 "text": {
                     "type": "mrkdwn",
                     "text": (
-                        "*📊 WAHIS 발생건수 통계*\n"
-                        "발생일(outbreak.start_date) 기준으로 "
-                        "고유 outbreak를 집계합니다."
+                        "*📊 통계·자료 조회*\n"
+                        "버튼에서 자료를 열거나, 아래 조건으로 발생건수를 조회하세요."
                     ),
                 },
             },
@@ -1040,12 +1039,7 @@ def build_stats_modal(
                     "type": "button",
                     "action_id": "dashboard_open",
                     "text": {"type": "plain_text", "text": "통계 대시보드"},
-                }],
-            },
-
-            {
-                "type": "actions",
-                "elements": [{
+                }, {
                     "type": "button",
                     "action_id": "qia_import_open",
                     "text": {"type": "plain_text", "text": "수입건수"},
@@ -1058,6 +1052,14 @@ def build_stats_modal(
 
             {
                 "type": "divider",
+            },
+
+            {
+                "type": "context",
+                "elements": [{
+                    "type": "mrkdwn",
+                    "text": "발생건수는 발생일 기준으로 동일 발생 건을 중복 없이 집계합니다.",
+                }],
             },
 
             # ---------------------------------------------

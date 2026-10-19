@@ -1,0 +1,17 @@
+ALTER TABLE `apqa_collection_logs` COMMENT = '검역본부 수입허용·수입금지 현황의 수집 실행 결과, 처리 건수 및 오류 기록';
+ALTER TABLE `apqa_import_history` COMMENT = '검역본부 수입허용·수입금지 자료의 추가·변경·삭제 이력과 변경 전후 내용';
+ALTER TABLE `apqa_import_permissions` COMMENT = '검역본부 품목·국가별 수입허용 현황과 활성 상태';
+ALTER TABLE `apqa_import_restrictions` COMMENT = '검역본부 질병·품목·국가별 수입금지·제한 현황, 적용 범위 및 시행·해제일';
+ALTER TABLE `country_regions` COMMENT = '질병 조회·통계에 사용하는 국가명과 권역의 연결 기준';
+ALTER TABLE `disease_reports` COMMENT = 'WOAH WAHIS 질병 보고서 기본정보와 처리 상태(HPAI·ASF·FMD·LSD·BSE, 상세 적재·Slack 알림 상태 포함)';
+ALTER TABLE `outbreaks` COMMENT = 'WAHIS 개별 발생지의 위치·발생 기간·역학 단위와 최신 보고서 기준 현황';
+ALTER TABLE `qia_rejection_statistics` COMMENT = '검역본부 월별 수입검역 불합격 통계 상세행(품목·품명·국가·불합격사유별 건수와 수량)';
+ALTER TABLE `qia_statistics_collections` COMMENT = '검역본부 월별 검역통계의 수집 범위·요청 조건·원본 파일 해시·검증 결과 및 완료 상태';
+ALTER TABLE `qia_statistics_summaries` COMMENT = '검역본부 월별 검역통계 원본의 소계·총계(상세행과 별도 보관, 중복 합산 주의)';
+ALTER TABLE `qia_trade_statistics` COMMENT = '검역본부 월별 동물·축산물 수출입 검역통계 상세행(품목·품명·국가별 건수와 수량)';
+ALTER TABLE `report_quantitative` COMMENT = 'WAHIS 보고서·동물종별 감수성·발생·폐사·살처분·도축·접종 수치(신규·누계 구분)';
+ALTER TABLE `wahis_animal_population` COMMENT = 'WAHIS 연례보고서의 국가·연도·동물 분류별 개체수, 사육시설 수 및 도축·중량 통계';
+ALTER TABLE `weekly_html_reports` COMMENT = 'Slack 주간 요약에서 연결하는 상세 HTML 보고서와 접근 토큰·만료 시각';
+ALTER TABLE `woah_collection_runs` COMMENT = 'WOAH 자체 청정 선언 문서의 질병별 수집 실행 결과와 발견·저장·실패 건수';
+ALTER TABLE `woah_documents` COMMENT = 'WOAH 국가별 자체 청정 선언 문서 목록, 원문 주소, 다운로드 상태 및 최신 버전 연결';
+ALTER TABLE `woah_document_versions` COMMENT = 'WOAH 자체 청정 선언 문서의 버전별 PDF 원본, 파일 해시 및 페이지별 추출 텍스트';
