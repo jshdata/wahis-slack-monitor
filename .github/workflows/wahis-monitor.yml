@@ -17,6 +17,8 @@ concurrency:
 jobs:
   monitor:
     runs-on: ubuntu-latest
+    env:
+      DB_SSL_CA: ca.pem
 
     steps:
       # -------------------------------------------------
@@ -48,6 +50,7 @@ jobs:
         env:
           SLACK_MONITOR_ENV: ${{ secrets.SLACK_MONITOR_ENV }}
         run: |
+          test -n "$SLACK_MONITOR_ENV" || { echo 'Missing SLACK_MONITOR_ENV secret'; exit 1; }
           printf '%s\n' "$SLACK_MONITOR_ENV" > .env
 
       # -------------------------------------------------
@@ -57,7 +60,24 @@ jobs:
         env:
           DB_SSL_CA_CERT: ${{ secrets.DB_SSL_CA_CERT }}
         run: |
+          test -n "$DB_SSL_CA_CERT" || { echo 'Missing DB_SSL_CA_CERT secret'; exit 1; }
           printf '%s\n' "$DB_SSL_CA_CERT" > ca.pem
+          openssl x509 -in ca.pem -noout
+
+      - name: Validate database configuration
+        run: |
+          python - <<'PY'
+          import os
+          from dotenv import load_dotenv
+          load_dotenv('.env')
+          required = ('DB_HOST', 'DB_PORT', 'DB_USER', 'DB_PASSWORD', 'DB_NAME')
+          missing = [name for name in required if not os.getenv(name)]
+          if missing:
+              raise SystemExit('Missing database settings in SLACK_MONITOR_ENV: ' + ', '.join(missing))
+          from database.db import get_ssl_ca_path
+          get_ssl_ca_path()
+          print('Database settings and SSL CA path validated')
+          PY
 
       # -------------------------------------------------
       # 6. WAHIS 모니터 실행
