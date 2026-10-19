@@ -23,6 +23,7 @@ class BseTests(unittest.TestCase):
 
     @patch('wahis.api.requests.post')
     def test_bse_filter_and_regular_monitoring(self, post):
+        post.return_value.json.return_value = {'list': []}
         api.get_events(disease_codes=['BSE'])
         self.assertEqual(post.call_args.kwargs['json']['firstDiseases'], [89])
         api.get_events()

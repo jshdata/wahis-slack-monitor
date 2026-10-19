@@ -2,6 +2,7 @@ from datetime import datetime
 
 from database.db import get_connection
 from wahis.detail_api import get_report_detail
+from wahis.diseases import require_supported_disease
 
 
 def convert_datetime(date_string):
@@ -843,6 +844,8 @@ def save_report_detail(data):
         raise ValueError(
             "상세 API 응답에 reportId가 없습니다."
         )
+
+    require_supported_disease(get_translation((data.get('event') or {}).get('disease')))
 
     update_disease_report_detail(
         data

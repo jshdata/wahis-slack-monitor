@@ -1,5 +1,6 @@
 import requests
 import time
+from wahis.diseases import DISEASES, require_supported_disease, selected_disease_ids
 
 
 URL = "https://wahis.woah.org/api/v1/pi/event/filtered-list?language=en"
@@ -12,15 +13,6 @@ URL = "https://wahis.woah.org/api/v1/pi/event/filtered-list?language=en"
 # ASF  : African Swine Fever
 # LSD  : Lumpy Skin Disease
 # FMD  : Foot and Mouth Disease
-
-DISEASES = {
-    "HPAI": 668,
-    "ASF": 55,
-    "LSD": 769,
-    "FMD": 437,
-    "HPAI_NON_POULTRY": 671,
-    "BSE": 89,
-}
 
 def get_events(page_number=0, page_size=10, disease_codes=None):
     """
@@ -40,7 +32,7 @@ def get_events(page_number=0, page_size=10, disease_codes=None):
         "countries": [],
 
         # HPAI + ASF + LSD + FMD + BSE
-        "firstDiseases": [DISEASES[code] for code in disease_codes] if disease_codes is not None else list(DISEASES.values()),
+        "firstDiseases": selected_disease_ids(disease_codes),
 
         "secondDiseases": [],
         "animalTypes": [],
@@ -71,7 +63,10 @@ def get_events(page_number=0, page_size=10, disease_codes=None):
 
     response.raise_for_status()
 
-    return response.json()
+    data = response.json()
+    for event in data.get('list', []):
+        require_supported_disease(event.get('disease'))
+    return data
 
 
 def get_latest_events(page_count=3, page_size=10):

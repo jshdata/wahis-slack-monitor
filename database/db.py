@@ -5,6 +5,7 @@ from datetime import datetime
 
 import pymysql
 from dotenv import load_dotenv
+from wahis.diseases import require_supported_disease
 
 
 load_dotenv()
@@ -320,6 +321,8 @@ def insert_disease_report(event, notify_slack=True):
     """
     WAHIS 이벤트를 DB에 저장
     """
+
+    require_supported_disease(event.get('disease'))
 
     conn = None
     cursor = None
