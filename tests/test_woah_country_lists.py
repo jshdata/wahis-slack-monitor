@@ -1,11 +1,32 @@
 import json
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 from slack.woah_docs import countries_view, filtered_documents, list_view, register_woah_handlers
 
 
 class CountryListTests(unittest.TestCase):
+    @patch('slack.woah_docs.submit')
+    @patch('slack.woah_docs.countries_view')
+    def test_direct_country_table_uses_selected_stats_disease(self, countries, submit):
+        handlers = {}
+        app = MagicMock()
+        def register(name):
+            def decorator(handler):
+                handlers[name] = handler
+                return handler
+            return decorator
+        app.action.side_effect = register
+        register_woah_handlers(app)
+        client, ack = MagicMock(), MagicMock()
+        client.views_push.return_value = {'view': {'id': 'V123'}}
+        body = {'trigger_id': 'T123', 'view': {'state': {'values': {
+            'stats_disease_block': {'stats_disease_select': {'selected_options': [{'value': 'ASF'}]}}}}}}
+        handlers['woah_countries_open'](ack, body, client)
+        ack.assert_called_once()
+        submit.call_args.args[2]()
+        countries.assert_called_once_with('ASF')
+
     def test_inclusive_optional_dates_and_unknown(self):
         docs = [{'published_date': value} for value in
                 ('2025-01-01', '2026-01-01', '2026-01-31', None, 'invalid')]
@@ -49,7 +70,7 @@ class CountryListTests(unittest.TestCase):
                  if e.get('type') == 'datepicker']
         self.assertEqual(len(dates), 2)
         self.assertTrue(all('initial_date' not in e for e in dates))
-        self.assertIn('woah_docs_countries', json.dumps(view))
+        self.assertNotIn('woah_docs_countries', json.dumps(view))
         self.assertFalse(any(b['type'] == 'input' for b in view['blocks']))
 
     @patch('slack.woah_docs.woah_db')

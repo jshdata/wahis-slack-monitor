@@ -1031,11 +1031,23 @@ def build_stats_modal(
                     "action_id": "woah_docs_open",
                     "text": {"type": "plain_text", "text": "WOAH 자체 청정 선언 PDF 보기"},
                     "value": "HPAI",
+                }],
+            },
+            {
+                "type": "actions",
+                "elements": [{
+                    "type": "button",
+                    "action_id": "woah_countries_open",
+                    "text": {"type": "plain_text", "text": "권역별 선언 국가 표"},
                 }, {
                     "type": "button",
                     "action_id": "presence_open",
                     "text": {"type": "plain_text", "text": "발생 여부 표 (O)"},
-                }, {
+                }],
+            },
+            {
+                "type": "actions",
+                "elements": [{
                     "type": "button",
                     "action_id": "neighbors_open",
                     "text": {"type": "plain_text", "text": "주변국 발생현황"},
@@ -1043,7 +1055,11 @@ def build_stats_modal(
                     "type": "button",
                     "action_id": "dashboard_open",
                     "text": {"type": "plain_text", "text": "통계 대시보드"},
-                }, {
+                }],
+            },
+            {
+                "type": "actions",
+                "elements": [{
                     "type": "button",
                     "action_id": "qia_import_open",
                     "text": {"type": "plain_text", "text": "수입건수"},

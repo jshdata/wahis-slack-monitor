@@ -89,7 +89,6 @@ def list_view(disease='HPAI', page=0, start_date=None, end_date=None):
         blocks.append({'type': 'actions', 'block_id': block_id, 'elements': [element]})
     blocks.append({'type': 'actions', 'elements': [
         button('날짜 적용 / PDF 조회', 'woah_docs_filter', json.dumps(meta)),
-        button('권역별 선언 국가 표', 'woah_docs_countries', json.dumps(meta)),
         button('전체 기간으로 초기화', 'woah_docs_reset', json.dumps(meta))]})
     blocks.append(section(f'게시일 기준 · {start_date or "전체"} ~ {end_date or "전체"}'))
     if unknown:
@@ -302,6 +301,14 @@ def register_woah_handlers(app):
         disease = selected_value(state.get('stats_disease_block', {}).get('stats_disease_select', {}))
         response = client.views_push(trigger_id=body['trigger_id'], view=loading())
         submit(client, response['view']['id'], lambda: list_view(disease))
+
+    @app.action('woah_countries_open')
+    def open_countries_from_stats(ack, body, client):
+        ack()
+        state = body.get('view', {}).get('state', {}).get('values', {})
+        disease = selected_value(state.get('stats_disease_block', {}).get('stats_disease_select', {}))
+        response = client.views_push(trigger_id=body['trigger_id'], view=loading())
+        submit(client, response['view']['id'], lambda: countries_view(disease))
 
     @app.command('/woah-docs')
     def open_documents(ack, body, client):

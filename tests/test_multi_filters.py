@@ -83,6 +83,11 @@ class MultiFilterTests(unittest.TestCase):
         scope = load_query_functions(names, {'build_country_options': lambda: options})
         for name in ('build_search_modal', 'build_stats_modal'):
             view = scope[name]()
+            if name == 'build_stats_modal':
+                rows = [b['elements'] for b in view['blocks'] if b['type'] == 'actions']
+                self.assertEqual([len(row) for row in rows], [2, 2, 2, 2])
+                self.assertEqual(len({e['action_id'] for row in rows for e in row}), 8)
+                self.assertIn('woah_countries_open', {e['action_id'] for row in rows for e in row})
             for block in view['blocks']:
                 element = block.get('element', {})
                 action = element.get('action_id', '')
