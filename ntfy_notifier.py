@@ -4,6 +4,7 @@ import json
 import os
 
 import requests
+from database.report_alert_details import get_report_alert_details
 
 
 def enabled():
@@ -39,6 +40,7 @@ def enqueue(cursor, event):
 
 
 def send(event, topic_url):
+    details = get_report_alert_details(event)
     url = (f"https://wahis.woah.org/#/in-review/{event['eventId']}"
            f"?reportId={event['reportId']}&fromPage=event-dashboard-url")
     headers = {}
@@ -53,6 +55,10 @@ def send(event, topic_url):
         'message': '\n'.join([
             f"국가: {event.get('country', '-')}",
             f"질병: {event.get('disease', '-')}",
+            f"혈청형·아형: {details['subtype']}",
+            f"사육·야생 구분: {details['animal_category']}",
+            f"축종: {details['species']}",
+            '축종·구분: 이번 보고로 갱신된 발생지 중 확인된 자료 기준',
             f"Report ID: {event['reportId']}",
             f"보고 유형: {event.get('reportType') or '-'}",
             f"제출일: {event.get('submissionDate') or '-'}",

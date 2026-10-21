@@ -4,6 +4,7 @@ import os
 import requests
 from dotenv import load_dotenv
 from datetime import datetime
+from database.report_alert_details import get_report_alert_details
 
 
 load_dotenv()
@@ -121,6 +122,7 @@ def send_new_report_alert(event):
     event_id = event["eventId"]
     country = event["country"]
     disease = event["disease"]
+    details = get_report_alert_details(event)
 
     submission_date = format_submission_date(
         event.get("submissionDate")
@@ -231,6 +233,19 @@ def send_new_report_alert(event):
                     "text": f"*🦠 질병*\n{disease}"
                 }
             ]
+        },
+
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": (
+                    f"*혈청형·아형:* {details['subtype']}\n"
+                    f"*사육·야생 구분:* {details['animal_category']}\n"
+                    f"*축종:* {details['species']}\n"
+                    "_축종·구분은 이번 보고로 갱신된 발생지 중 확인된 자료 기준_"
+                )
+            }
         },
 
         # WAHIS 발생 사유
@@ -348,6 +363,9 @@ def send_new_report_alert(event):
         blocks=blocks,
         text=(
             f"{alert_title} - "
-            f"{country} / {disease}"
+            f"{country} / {disease}\n"
+            f"혈청형·아형: {details['subtype']} | "
+            f"사육·야생: {details['animal_category']}\n"
+            f"축종: {details['species']}"
         )
     )
