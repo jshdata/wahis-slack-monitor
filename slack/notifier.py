@@ -240,6 +240,7 @@ def send_new_report_alert(event):
             "text": {
                 "type": "mrkdwn",
                 "text": (
+                    f"*신규 발생:* {details['new_outbreaks']}\n"
                     f"*혈청형·아형:* {details['subtype']}\n"
                     f"*사육·야생 구분:* {details['animal_category']}\n"
                     f"*축종:* {details['species']}\n"
@@ -364,6 +365,7 @@ def send_new_report_alert(event):
         text=(
             f"{alert_title} - "
             f"{country} / {disease}\n"
+            f"신규 발생: {details['new_outbreaks']}\n"
             f"혈청형·아형: {details['subtype']} | "
             f"사육·야생: {details['animal_category']}\n"
             f"축종: {details['species']}"

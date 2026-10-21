@@ -55,6 +55,7 @@ def send(event, topic_url):
         'message': '\n'.join([
             f"국가: {event.get('country', '-')}",
             f"질병: {event.get('disease', '-')}",
+            f"신규 발생: {details['new_outbreaks']}",
             f"혈청형·아형: {details['subtype']}",
             f"사육·야생 구분: {details['animal_category']}",
             f"축종: {details['species']}",

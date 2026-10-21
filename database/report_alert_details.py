@@ -3,13 +3,21 @@ from database.db import get_connection
 
 
 def get_report_alert_details(event):
-    result = {'subtype': '미확인', 'animal_category': '미확인', 'species': '미확인'}
+    result = {'subtype': '미확인', 'animal_category': '미확인', 'species': '미확인',
+              'new_outbreaks': '미확인'}
     conn = None
     try:
         conn = get_connection()
         with conn.cursor() as cur:
-            cur.execute('SELECT subtype FROM disease_reports WHERE report_id=%s', (event['reportId'],))
+            cur.execute('''SELECT dr.subtype, dr.detail_loaded,
+                (SELECT COUNT(DISTINCT o.outbreak_id) FROM outbreaks o
+                 WHERE o.created_by_report_id=dr.report_id)
+                FROM disease_reports dr WHERE dr.report_id=%s''', (event['reportId'],))
             row = cur.fetchone()
+            # Failed/unfinished details must not look like zero outbreaks.
+            # Creation report remains stable even when the outbreak is updated.
+            if row and row[1] == 1:
+                result['new_outbreaks'] = f'{row[2]}건'
             if row and row[0] and str(row[0]).strip() not in ('', '-'):
                 result['subtype'] = str(row[0]).strip()[:200]
             # Only the outbreaks updated by this report. Do not substitute the

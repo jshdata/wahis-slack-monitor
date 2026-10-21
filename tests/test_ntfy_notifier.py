@@ -10,7 +10,7 @@ class NtfyTests(unittest.TestCase):
         event = {'reportId': 123, 'eventId': 456, 'country': '대한민국', 'disease': '질병'}
         with patch.dict(os.environ, {'NTFY_TOKEN': 'test-token'}), \
                 patch.object(ntfy, 'get_report_alert_details', return_value={
-                    'subtype': 'H5N1', 'animal_category': '사육', 'species': 'Birds (사육)'}), \
+                    'subtype': 'H5N1', 'animal_category': '사육', 'new_outbreaks': '5건', 'species': 'Birds (사육)'}), \
                 patch.object(ntfy.requests, 'post') as post:
             ntfy.send(event, 'https://ntfy.sh/test-topic')
         args, kwargs = post.call_args
@@ -19,6 +19,7 @@ class NtfyTests(unittest.TestCase):
         self.assertIn('대한민국', kwargs['json']['message'])
         self.assertIn('혈청형·아형: H5N1', kwargs['json']['message'])
         self.assertIn('축종: Birds (사육)', kwargs['json']['message'])
+        self.assertIn('5건', kwargs['json']['message'])
         self.assertIn('reportId=123', kwargs['json']['click'])
         self.assertEqual(kwargs['headers']['Authorization'], 'Bearer test-token')
         post.return_value.raise_for_status.assert_called_once()
