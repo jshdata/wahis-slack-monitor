@@ -3,6 +3,7 @@ from datetime import datetime
 from database.db import get_connection
 from wahis.detail_api import get_report_detail
 from wahis.diseases import require_supported_disease
+from wahis.outbreak_species import load_report_outbreak_species
 
 
 def convert_datetime(date_string):
@@ -138,7 +139,7 @@ def update_disease_report_detail(data):
     상세 API 데이터를 이용해
     기존 disease_reports를 보완한다.
 
-    detail_loaded는 여기서 변경하지 않는다.
+    처리 시작 시 detail_loaded=0으로 되돌려 실패한 재적재도 복구 대상에 남긴다.
 
     outbreaks와 quantitative까지 모두 저장된 뒤
     save_report_detail() 마지막 단계에서 1로 변경한다.
@@ -171,6 +172,7 @@ def update_disease_report_detail(data):
     sql = """
         UPDATE disease_reports
         SET
+            detail_loaded = 0,
             subtype = %s,
             event_start_date = %s,
             event_status = %s,
@@ -829,7 +831,8 @@ def save_report_detail(data):
     1. disease_reports 상세정보 UPDATE
     2. outbreaks 저장
     3. quantitative 저장
-    4. 모든 과정이 성공한 경우
+    4. 발생지별 축종·사육/야생 저장 (전체 JSON 저장 안 함)
+    5. 모든 과정이 성공한 경우
        detail_loaded = 1
     """
 
@@ -858,6 +861,8 @@ def save_report_detail(data):
     insert_quantitative_data(
         data
     )
+
+    load_report_outbreak_species(data)
 
     mark_detail_loaded(
         report_id

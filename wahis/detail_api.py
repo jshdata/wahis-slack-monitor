@@ -6,6 +6,18 @@ BASE_URL = (
 )
 
 
+def get_outbreak_detail(report_id, outbreak_id, session=None):
+    """Fetch species quantities for one outbreak, rather than report totals."""
+    response = (session or requests).get(
+        f"{BASE_URL}{report_id}/outbreak/{outbreak_id}/all-information",
+        params={"language": "en"},
+        headers={"Accept": "application/json", "Referer": "https://wahis.woah.org/"},
+        timeout=30,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
 def get_report_detail(report_id, session=None):
     """
     WAHIS 특정 report_id의 상세정보를 가져온다.
