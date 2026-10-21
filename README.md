@@ -1,6 +1,6 @@
 # WAHIS Slack Monitor
 
-WOAH(세계동물보건기구) **WAHIS**에 새로 등록되는 동물질병 리포트를 자동으로 감지해 DB에 저장하고, Slack으로 알림과 조회·통계 기능을 제공하는 프로젝트입니다.
+WOAH(세계동물보건기구) **WAHIS**에 새로 등록되는 동물질병 리포트를 자동으로 감지해 DB에 저장하고, Slack으로 알림과 조회·통계 기능을 제공하는 프로젝트입니다. ntfy를 설정하면 신규 보고 알림을 함께 받을 수 있습니다.
 
 ## 모니터링 대상 질병
 
@@ -18,9 +18,9 @@ WOAH(세계동물보건기구) **WAHIS**에 새로 등록되는 동물질병 리
 ## 주요 기능
 
 - **신규 리포트 자동 감지**: WAHIS API를 페이지 단위로 조회하고, DB에 없는 Report만 신규로 판별
-- **상세정보 적재**: Report별 상세 API로 subtype, outbreak, 정량 데이터(발생·폐사·살처분 등)를 저장
+- **상세정보 적재**: Report별 subtype, outbreak, 정량 데이터(발생·폐사·살처분 등)와 발생지별 축종·사육/야생 구분을 저장
 - **실패 자동 복구**: `detail_loaded = 0`으로 남은 Report를 다음 실행 때 재처리 (최대 10건)
-- **Slack 알림**: 신규 Report 발견 시 Incoming Webhook으로 Block Kit 알림 전송
+- **신규 보고 알림**: Slack 및 선택적 ntfy 알림에 신규 발생 건수, 혈청형·아형, 축종 이름과 사육/야생 여부 표시
 - **Slack 조회 (`/wahis`)**: 권역·국가·사육/야생·질병·기간(KST)으로 Report 검색
 - **Slack 통계 (`/wahis-stats`)**: outbreak 발생일 기준 국가별 총 발생건수, 국가 × 세부질병(subtype) Matrix
 
@@ -31,6 +31,60 @@ python backfill_disease.py --disease BSE
 ```
 
 이 명령은 과거 보고서와 상세 정보를 적재하며 Slack 알림을 생성하지 않습니다. 상세 적재가 완료된 보고서는 재실행 시 건너뜁니다.
+
+## 신규 보고 알림과 발생 건수 기준
+
+- **신규 발생 건수**는 `created_by_report_id`가 해당 보고서인
+  `COUNT(DISTINCT outbreak_id)`입니다. 기존 ID의 정보 수정은 신규 발생에 포함하지 않습니다.
+- 갱신만 있는 보고서도 알림을 보내며, 신규 발생은 **0건**으로 표시합니다.
+  상세 적재가 완료되지 않았거나 조회에 실패하면 **미확인**으로 표시합니다.
+- **혈청형·아형**은 `disease_reports.subtype`을 사용합니다. 예: `H5N1`, `O`, `SAT 1`.
+- **축종**은 ID 대신 `species_name`을 표시하며 사육/야생 여부를 덧붙입니다.
+  예: `Birds (사육), Wild boar (야생)`. 축종은 최대 10개를 표시하고 나머지 개수를 안내합니다.
+- 축종·사육/야생 알림은 이번 보고로 갱신된 발생지 중 확인된 자료 기준입니다.
+  미수집 자료는 사육으로 추정하지 않습니다.
+- 통계의 발생 건수는 **발생 시작일(`outbreaks.start_date`) 기준 고유 ID 수**입니다.
+  보고일 기준 신규 알림 건수와 기간별 통계는 서로 다를 수 있습니다.
+  WAHIS의 **New/Updated outbreaks**를 보고서별로 더하면 기존 ID 갱신이 중복됩니다.
+- 감염 동물 수(`cases`)는 발생지 수와 별개입니다. 하나의 ID에 집단발생 수
+  (`cluster_count`)가 있어도 현재 통계는 ID 하나를 1건으로 계산합니다.
+
+## 기존 발생지 축종·사육/야생 추가 적재
+
+신규 자동 수집과 과거 보고서 상세 적재는 공통 저장 경로에서 축종·사육/야생 정보를
+함께 수집합니다. 이 과정이 실패하면 보고서를 미완료로 남겨 기존 재시도·복구 경로에서 처리합니다.
+기존에 상세 적재가 끝난 보고서의 누락 축종은 아래 배치 스크립트로 채웁니다.
+
+```powershell
+# 새 DB에서 최초 컬럼·테이블 생성 후 10건 확인
+python outbreak_species_load.py --init-schema --limit 10
+
+# 남은 발생지 수 확인
+python outbreak_species_load.py --status
+
+# 최대 100건 적재
+python outbreak_species_load.py --limit 100
+
+# 한 시간씩 이어서 적재
+python outbreak_species_load.py --all --max-minutes 60
+```
+
+- `outbreaks.animal_category`: `domestic`(사육), `wild`(야생), `mixed`(혼합), `unknown`(미확인).
+- `outbreak_species`: 발생지·보고서 ID, 축종 ID·이름, `is_wild`를 저장합니다.
+  HPAI의 가금/가금 외와 사육/야생은 서로 다른 분류입니다.
+- 기본 동시 API 요청은 3개, 전체 요청 시작 간격은 0.2초이며 DB 저장은 한 번에 한 건씩 처리합니다.
+  실패 시 총 5회 시도하며 3·6·9·12초 대기합니다. 서버의 `Retry-After`도 반영합니다.
+- 완료된 발생지는 건너뛰고, 실패 건이나 보고서 버전이 바뀐 발생지는 다시 수집합니다.
+  건수 제한은 성공 수가 아닌 처리 시도 발생지 수입니다.
+- 시간 제한이나 Ctrl+C 이후에도 진행 중인 묶음의 저장·재시도를 마칠 때까지 기다릴 수 있습니다.
+  같은 배치 스크립트를 여러 개 동시에 실행하지 마세요.
+- **현재는 발생지 상세 API의 전체 JSON과 동물종별 원본 JSON을 저장하지 않습니다.**
+  방역조치·진단 방법 등의 전체 응답을 Railway Bucket에 자동 보관하는 기능도 활성화하지 않았습니다.
+  기존 보고서 단위 정량 데이터와 발생일 등은 계속 DB에 유지합니다.
+
+이전 JSON 저장 방식 정리는 [적재·정리 가이드](docs/outbreak-species-loading.md)를 참고하세요.
+`cleanup_outbreak_json.py`는 로컬 gzip 백업 검증 후 JSON 저장분만 정리하는 별도 도구이며,
+일반 적재 때 실행할 필요가 없습니다.
 
 ## 국가별 연도·월 발생 여부 표
 
@@ -89,10 +143,13 @@ wahis-slack-monitor/
 ├── detail_initial_load.py   # 상세정보 배치 적재 (HPAI 가금 외)
 ├── wahis/
 │   ├── api.py               # 이벤트 목록 API
-│   └── detail_api.py        # Report 상세 API
+│   ├── detail_api.py        # Report·발생지 상세 API
+│   └── outbreak_species.py  # 보고서 적재 시 축종·사육/야생 수집
 ├── database/
 │   ├── db.py                # MySQL(Aiven) 연결, 기본정보 저장
 │   ├── detail_db.py         # 상세정보 저장 (outbreaks, quantitative)
+│   ├── outbreak_species_db.py # 발생지별 축종·사육/야생 저장·이어받기
+│   ├── report_alert_details.py # 알림용 신규 발생 건수·축종·아형 조회
 │   ├── query_db.py          # /wahis 검색 쿼리
 │   └── stats_db.py          # /wahis-stats 통계 쿼리
 ├── slack/
@@ -100,6 +157,9 @@ wahis-slack-monitor/
 │   └── query_app.py         # 슬래시 커맨드 앱 (Socket Mode)
 ├── scheduler/               # 스케줄러 (준비 중)
 ├── config/                  # 설정 (준비 중)
+├── outbreak_species_load.py  # 기존 발생지 축종·사육/야생 배치 적재
+├── cleanup_outbreak_json.py  # 이전 JSON 저장분 백업·정리 도구
+├── ntfy_notifier.py          # 선택적 ntfy 알림 및 독립 재전송 대기열
 └── .github/workflows/
     └── wahis-monitor.yml    # GitHub Actions 워크플로
 ```
