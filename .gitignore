@@ -9,3 +9,18 @@ __pycache__/
 .venv/
 venv/
 woah_exports/
+
+# Local generated data, previews, and database backups (keep source scripts visible).
+/data/**/*.json
+/data/**/*.csv
+/data/**/*.sql
+/data/**/*.pdf
+/data/**/*.gz
+/data/**/*.xls
+/data/**/*.xlsx
+/data/**/*.png
+/data/**/*.html
+/data/wahis_probe*.js
+/data/event_7176_audit/chunk-*.js
+/logs/*.log
+/wahis_outbreaks_all.csv

@@ -6,6 +6,17 @@ import os
 import requests
 from database.report_alert_details import get_report_alert_details
 
+TABLE_COMMENT = 'WAHIS 신규 보고 ntfy 알림 전송 대기열 및 전송 성공·실패 상태'
+COLUMN_COMMENTS = {
+    'report_id': 'WAHIS 보고서 ID; 보고서별 ntfy 중복 등록 방지 키',
+    'event_json': 'ntfy 알림 생성과 재전송에 사용하는 WAHIS 원본 이벤트 JSON',
+    'topic_url': '등록 시점의 ntfy 알림 수신 토픽 전체 URL',
+    'sent': 'ntfy 전송 완료 여부: 0=미완료, 1=완료',
+    'attempts': 'ntfy 전송 실패 횟수; 5회에 도달하면 자동 재시도 중단',
+    'created_at': 'ntfy 전송 대기 등록 시각(운영 DB 세션 시간대 기준)',
+    'sent_at': 'ntfy 전송 성공을 DB에 기록한 UTC 시각; 미전송 시 NULL',
+}
+
 
 def enabled():
     return bool(os.getenv('NTFY_TOPIC_URL', '').strip())
@@ -17,14 +28,14 @@ def initialize():
     try:
         with conn.cursor() as cursor:
             cursor.execute('''CREATE TABLE IF NOT EXISTS ntfy_outbox (
-                report_id BIGINT PRIMARY KEY,
-                event_json LONGTEXT NOT NULL,
-                topic_url TEXT NOT NULL,
-                sent TINYINT NOT NULL DEFAULT 0,
-                attempts INT NOT NULL DEFAULT 0,
-                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                sent_at TIMESTAMP NULL
-            )''')
+                report_id BIGINT PRIMARY KEY COMMENT %s,
+                event_json LONGTEXT NOT NULL COMMENT %s,
+                topic_url TEXT NOT NULL COMMENT %s,
+                sent TINYINT NOT NULL DEFAULT 0 COMMENT %s,
+                attempts INT NOT NULL DEFAULT 0 COMMENT %s,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT %s,
+                sent_at TIMESTAMP NULL COMMENT %s
+            ) COMMENT=%s''', (*COLUMN_COMMENTS.values(), TABLE_COMMENT))
         conn.commit()
     finally:
         conn.close()
