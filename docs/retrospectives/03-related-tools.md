@@ -233,3 +233,7 @@ GitHub에 지속 보관하도록 요청했다.
   작업은 제외한다. 이 기록 시점에는 푸시 및 Render 새 코드 배포 확인 전이다.
 - 공개 `/health`는 기존 배포에서 HTTP 200을 확인했다. B2 운영 전환 완료 판단에는
   Render/Actions 환경변수 반영 및 Slack PDF·방역조치 조회 확인이 추가로 필요하다.
+- **GitHub 반영 확인:** 관련 테스트 25개와 staged diff 검사를 통과한 후
+  [34756ad](https://github.com/jshdata/wahis-slack-monitor/commit/34756adc1fcca56668db4463374b1d1165aaaae7)를
+  `main`에 커밋·푸시했고 원격 `refs/heads/main`이 같은 ID임을 확인했다.
+  Render의 해당 커밋 배포 성공과 B2 환경변수 반영은 아직 확인하지 않았다.
