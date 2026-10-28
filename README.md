@@ -298,7 +298,7 @@ GitHub Actions 실패 상태와 원본 traceback을 유지합니다.
   임의 토큰을 포함한 링크를 가진 사람이 열 수 있습니다. 만료된 데이터는 다음 전송 시 정리합니다.
 - 기존 Railway 앱의 HTML 서버가 `/weekly/<token>` 경로를 제공합니다.
   워크플로와 Railway 양쪽에 최신 코드가 반영되어야 상세 버튼이 동작합니다.
-  기본 주소는 `https://wahis-slack-monitor-production.up.railway.app`이며,
+  기본 주소는 `https://wahis-slack-monitor.onrender.com`이며,
   변경 시 `WEEKLY_REPORT_BASE_URL` 또는 `STATS_REPORT_BASE_URL`을 설정합니다.
 - 조회 시점에 DB에 수집된 리포트가 대상입니다. 늦게 공개·수집된 과거 리포트는
   다음 주 집계로 넘어가지 않으므로 필요한 경우 해당 주를 수동 재실행합니다.

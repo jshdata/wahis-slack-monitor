@@ -1,4 +1,4 @@
-"""Private, content-addressed PDF storage in Railway or Cloudflare R2."""
+"""Private, content-addressed PDF storage in Railway, Cloudflare R2, or Backblaze B2."""
 import hashlib
 import os
 from urllib.parse import urlparse
@@ -6,13 +6,13 @@ from urllib.parse import urlparse
 
 def enabled():
     provider = os.getenv('WOAH_PDF_STORAGE', 'mysql').lower()
-    if provider not in ('mysql', 'r2', 'railway'):
-        raise ValueError('WOAH_PDF_STORAGE must be mysql, r2, or railway')
+    if provider not in ('mysql', 'r2', 'railway', 'b2'):
+        raise ValueError('WOAH_PDF_STORAGE must be mysql, r2, railway, or b2')
     return provider != 'mysql'
 
 
 def prefix():
-    return 'S3' if os.getenv('WOAH_PDF_STORAGE', 'mysql').lower() == 'railway' else 'R2'
+    return {'railway': 'S3', 'b2': 'B2'}.get(os.getenv('WOAH_PDF_STORAGE', 'mysql').lower(), 'R2')
 
 
 def bucket():
@@ -32,6 +32,9 @@ def client():
     host = parsed.hostname or ''
     allowed = (host == 'storage.railway.app' or host.endswith('.storage.railway.app')
                or host.endswith('.storageapi.dev')) if base == 'S3' else host.endswith('.r2.cloudflarestorage.com')
+    if base == 'B2':
+        import re
+        allowed = bool(re.fullmatch(r's3\.[a-z0-9]+(?:-[a-z0-9]+)*\.backblazeb2\.com', host))
     if (parsed.scheme != 'https' or not parsed.hostname or
             not allowed or parsed.username or parsed.password
             or parsed.query or parsed.fragment or parsed.path not in ('', '/')):
@@ -41,7 +44,7 @@ def client():
         raise ValueError('S3_ADDRESSING_STYLE must be auto, virtual, or path')
     from botocore.config import Config
     return boto3.client(
-        's3', endpoint_url=endpoint, region_name=os.getenv(base + '_REGION', 'auto'),
+        's3', endpoint_url=endpoint, region_name=os.getenv(base + '_REGION', host.split('.')[1] if base == 'B2' else 'auto'),
         aws_access_key_id=os.environ[base + '_ACCESS_KEY_ID'],
         aws_secret_access_key=os.environ[base + '_SECRET_ACCESS_KEY'],
         config=Config(connect_timeout=10, read_timeout=60, s3={'addressing_style': style},

@@ -8,6 +8,24 @@ from database import woah_db
 
 
 class PdfStorageTests(unittest.TestCase):
+    @patch('boto3.client')
+    def test_b2_endpoint_region_and_credentials(self, factory):
+        settings = {'WOAH_PDF_STORAGE': 'b2',
+                    'B2_ENDPOINT_URL': 'https://s3.us-east-005.backblazeb2.com',
+                    'B2_BUCKET': 'private', 'B2_ACCESS_KEY_ID': 'id',
+                    'B2_SECRET_ACCESS_KEY': 'secret'}
+        with patch.dict('os.environ', settings, clear=True):
+            self.assertTrue(pdf_storage.enabled())
+            self.assertEqual(pdf_storage.bucket(), 'private')
+            pdf_storage.client()
+            self.assertEqual(factory.call_args.kwargs['region_name'], 'us-east-005')
+            self.assertEqual(factory.call_args.kwargs['aws_access_key_id'], 'id')
+            for endpoint in ('https://s3.us-east-005.backblazeb2.com.evil.test',
+                             'http://s3.us-east-005.backblazeb2.com'):
+                with patch.dict('os.environ', {'B2_ENDPOINT_URL': endpoint}):
+                    with self.assertRaises(ValueError):
+                        pdf_storage.client()
+
     @patch('database.woah_db.time.monotonic')
     @patch('database.woah_db.connection')
     def test_overview_reuses_metadata_and_refreshes_after_expiry(self, connection, clock):

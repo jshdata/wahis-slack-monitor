@@ -30,7 +30,7 @@ jobs:
     env:
       DB_SSL_CA: ca.pem
       PYTHONUNBUFFERED: '1'
-      WEEKLY_REPORT_BASE_URL: 'https://wahis-slack-monitor-production.up.railway.app'
+      WEEKLY_REPORT_BASE_URL: 'https://wahis-slack-monitor.onrender.com'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

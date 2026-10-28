@@ -119,7 +119,7 @@ def build_weekly_messages(reports, start, end):
 
 def weekly_public_base():
     base = (os.getenv('WEEKLY_REPORT_BASE_URL') or os.getenv('STATS_REPORT_BASE_URL')
-            or 'https://wahis-slack-monitor-production.up.railway.app').rstrip('/')
+            or 'https://wahis-slack-monitor.onrender.com').rstrip('/')
     parsed = urlsplit(base)
     if parsed.scheme != 'https' or not parsed.netloc or parsed.hostname == 'railway.com':
         raise ValueError('WEEKLY_REPORT_BASE_URL에는 앱의 HTTPS 공개 주소가 필요합니다.')
