@@ -104,6 +104,7 @@ class ReportDashboardTests(unittest.TestCase):
             self.assertEqual(len(app.exception), 0)
             self.assertEqual(app.metric[2].value, f'{sum(counts)}건')
             self.assertTrue(any(t.value == 'SECOND SITE TEXT' for t in app.text))
+            self.assertEqual(app.session_state['map_epoch_100'], 1)
             if not sum(counts):
                 self.assertTrue(any('DB에서 확인되는 발생이 없습니다' in info.value for info in app.info))
 

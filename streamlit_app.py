@@ -13,6 +13,8 @@ from database.report_alert_details import get_report_alert_details
 from slack.country_map import country_boundary
 from database.report_species_dashboard import load_report_species
 from slack.report_quantitative_view import render_quantities
+from slack.dashboard_interactions import csv_bytes, selected_outbreak
+from slack.outbreak_detail_view import render_outbreak_detail
 
 st.set_page_config(page_title='WAHIS 보고서 대시보드', page_icon='🌍', layout='wide')
 st.title('WAHIS 보고서 대시보드')
@@ -38,6 +40,26 @@ if data is None:
     st.stop()
 
 report, rows = data['report'], data['outbreaks']
+detail_key = f'detail_outbreak_{report_id}'
+map_epoch_key = f'map_epoch_{report_id}'
+map_key = f"outbreak_map_{report_id}_{st.session_state.get(map_epoch_key, 0)}"
+valid_ids = {r['outbreak_id'] for r in rows}
+if rows and st.session_state.get(detail_key) not in valid_ids:
+    st.session_state[detail_key] = rows[0]['outbreak_id']
+export_metadata = {'보고서 ID': report_id, '국가': report['country'], '질병': report['disease']}
+
+
+def on_map_select():
+    oid = selected_outbreak(st.session_state.get(map_key), valid_ids)
+    if oid is not None:
+        st.session_state[detail_key] = oid
+
+
+def on_detail_change():
+    # A fresh map selection state lets a repeated click select the same point
+    # again after the user has picked a different site from the dropdown.
+    st.session_state[map_epoch_key] = st.session_state.get(map_epoch_key, 0) + 1
+
 st.subheader(f"{report['country']} · {report['disease']}")
 st.write(f"Report {report_id} · Event {report['event_id']} · {report['report_type'] or '-'} · {report['event_status'] or '-'}")
 st.write(f"제출일: {report['submission_date'] or '미확인'}")
@@ -52,7 +74,7 @@ if report['detail_loaded'] != 1:
 st.write(f"혈청형·아형: {details['subtype']} | 사육·야생: {details['animal_category']} | 축종: {details['species']}")
 st.caption('축종·사육·야생은 이번 보고로 갱신된 발생지의 확인된 자료 기준입니다. 미수집은 0이나 사육으로 처리하지 않습니다.')
 
-render_quantities(report_id)
+render_quantities(report_id, report)
 
 st.subheader('이번 보고의 발생 위치')
 points = [{'latitude': float(r['latitude']), 'longitude': float(r['longitude']),
@@ -66,14 +88,14 @@ if points:
     layers = []
     if boundary['features']:
         layers.append(pdk.Layer(
-            'GeoJsonLayer', boundary, filled=True, stroked=True,
+            'GeoJsonLayer', boundary, id='report-country', filled=True, stroked=True,
             get_fill_color=[20, 184, 166, 55], get_line_color=[13, 148, 136, 240],
             get_line_width=100, line_width_min_pixels=2, line_width_max_pixels=2,
             pickable=False))
         st.caption('청록색 면과 테두리: 보고서의 해당 국가 · 발생·위험 지역의 범위를 뜻하지 않습니다.')
     else:
         st.caption('해당 국가의 경계 자료를 연결하지 못해 발생 지점만 표시합니다.')
-    layers.append(pdk.Layer('ScatterplotLayer', points,
+    layers.append(pdk.Layer('ScatterplotLayer', points, id='report-outbreaks',
                             get_position='[longitude, latitude]', get_fill_color='color',
                             get_radius=100, radius_min_pixels=7, radius_max_pixels=7,
                             pickable=True))
@@ -82,12 +104,15 @@ if points:
     st.pydeck_chart(pdk.Deck(
         initial_view_state=view, map_style=None,
         layers=layers,
-        tooltip={'text': '발생 ID: {outbreak_id}\n{kind}\n{location}'}))
+        tooltip={'text': '발생 ID: {outbreak_id}\n{kind}\n{location}'}),
+        key=map_key, on_select=on_map_select, selection_mode='single-object')
+    st.caption('발생 원을 클릭하면 바로 아래 상세가 해당 발생지로 바뀝니다. 좌표가 없는 지점은 상세 선택 목록에서 선택하세요.')
 else:
     st.info('표시할 좌표가 없습니다. 아래 목록에서 확인해주세요.')
 st.caption('원의 크기는 동일하며 확산·위험 반경을 뜻하지 않습니다. 근사 위치는 아래 목록에서 구분합니다. '
            '같은 좌표의 원은 겹칠 수 있습니다.')
 st.caption('국가 경계: Natural Earth 1:50m v5.1.2 · 지도 식별용 일반화 자료')
+detail_slot = st.container()
 
 st.subheader('동일 국가·질병의 기간별 발생 건수')
 if data['trend']:
@@ -118,6 +143,9 @@ if data['trend']:
         st.info('선택 기간에 DB에서 확인되는 발생이 없습니다.')
     st.caption(f"{data['start']} ~ {data['end']} · 발생일 기준 고유 발생 ID 집계 · 후속 보고 중복 제외 · "
                '축종·사육·야생 필터 미적용 · 미수집 발생 및 발생일 미상은 반영되지 않습니다.')
+    st.download_button('선택 기간의 발생 추이 CSV 다운로드', csv_bytes(data['trend'], {
+        **export_metadata, '기간 시작': data['start'], '기간 종료': data['end']}),
+        file_name=f'wahis-report-{report_id}-{days}days-trend.csv', mime='text/csv')
 else:
     st.info('제출일이 없어 추이 기간을 정할 수 없습니다.')
 
@@ -159,22 +187,17 @@ table = [{'발생 ID': r['outbreak_id'], '구분': r['kind'], '지역': r['admin
           '축종': species_sites.get(r['outbreak_id'], {}).get('species', '미확인')} for r in rows]
 if table:
     st.dataframe(pd.DataFrame(table), hide_index=True, use_container_width=True)
-    selected_id = st.selectbox('발생지 상세 보기', [r['outbreak_id'] for r in rows],
-                               format_func=lambda oid: next(
-                                   f"{r['outbreak_id']} · {r['location'] or r['admin_division'] or '위치명 미확인'}"
-                                   for r in rows if r['outbreak_id'] == oid))
-    site = next(r for r in rows if r['outbreak_id'] == selected_id)
-    st.write(f"**발생 ID:** {selected_id} · **구분:** {site['kind']}")
-    st.write(f"**지역:** {site['admin_division'] or '미확인'} · **위치:** {site['location'] or '미확인'}")
-    st.write(f"**역학 단위:** {site.get('epi_unit_type') or '미확인'} · "
-             f"**집단 발생 역학 단위 수:** {site.get('cluster_count') if site.get('cluster_count') is not None else '미확인'}")
-    st.write(f"**시작일:** {site['start_date'] or '미확인'} · **종료일:** {site.get('end_date') or '미보고'}")
-    classification = species_sites.get(selected_id, {})
-    st.write(f"**축종:** {classification.get('species', '미확인')} · "
-             f"**사육·야생:** {classification.get('category', '미확인')}")
-    st.caption('발생지 상세는 현재 DB 상태입니다. 과거 보고서 당시의 스냅샷이 아닙니다. 종료일 미보고를 진행 중으로 단정하지 않습니다.')
-    st.write('**발생지·역학 상황 원문 설명**')
-    st.text(site.get('description') or '저장된 원문 설명이 없습니다.')
+    export_rows = [{**item, '역학 단위': site.get('epi_unit_type'),
+                    '집단 발생 역학 단위 수': site.get('cluster_count'),
+                    '종료일': site.get('end_date'), '원문 설명': site.get('description')}
+                   for item, site in zip(table, rows)]
+    st.download_button('보고서 발생지 전체 상세 CSV 다운로드', csv_bytes(export_rows, {
+        **export_metadata, '자료 범위': '보고서 연결 발생지 전체 · 현재 DB 상태'}),
+        file_name=f'wahis-report-{report_id}-outbreaks.csv', mime='text/csv')
+    st.caption('발생지 CSV는 이 보고서에 연결되는 지점 전체입니다. 위 기간 선택은 발생 추이 CSV에만 적용됩니다.')
+    with detail_slot:
+        render_outbreak_detail(rows, species_sites, detail_key, export_rows, export_metadata,
+                               on_change=on_detail_change)
 else:
     st.info('현재 DB에서 이 보고서와 연결되는 발생지가 없습니다. 발생이 없다는 뜻은 아닙니다.')
 st.caption('조회 시각: ' + datetime.now(ZoneInfo('Asia/Seoul')).strftime('%Y-%m-%d %H:%M:%S KST'))

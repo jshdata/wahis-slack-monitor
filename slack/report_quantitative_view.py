@@ -3,12 +3,13 @@ import logging
 import altair as alt
 import pandas as pd
 import streamlit as st
+from slack.dashboard_interactions import csv_bytes
 from database.report_quantitative_dashboard import (
     FIELDS, load_report_quantities, quantity_summary, format_quantity, species_quantities,
 )
 
 
-def render_quantities(report_id):
+def render_quantities(report_id, metadata=None):
     st.subheader('보고서 피해·대응 규모')
     st.caption('보고서 단위 정량자료입니다. 개별 발생지의 수치가 아니며 항목 간 중복이 가능해 합산하지 않습니다.')
     try:
@@ -45,6 +46,11 @@ def render_quantities(report_id):
     st.subheader('축종별 피해·대응 상세 수치')
     table, comparisons = species_quantities(selected)
     st.dataframe(pd.DataFrame(table), hide_index=True, use_container_width=True)
+    st.download_button('선택한 정량자료 CSV 다운로드', csv_bytes(table, {
+        '보고서 ID': report_id, '국가': (metadata or {}).get('country', '미확인'),
+        '질병': (metadata or {}).get('disease', '미확인'), '정량자료 범위': scope, '단위': unit}),
+        file_name=f'wahis-report-{report_id}-{data_type}-quantities.csv', mime='text/csv',
+        key=f'quantity_csv_{report_id}_{data_type}_{unit}')
     if len(table) > 1 and comparisons:
         metric_options = [label for label in ('감염', '폐사', '살처분')
                           if any(r['항목'] == label for r in comparisons)]
