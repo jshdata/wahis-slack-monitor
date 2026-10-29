@@ -64,7 +64,7 @@ if points:
         layers.append(pdk.Layer(
             'GeoJsonLayer', boundary, filled=True, stroked=True,
             get_fill_color=[20, 184, 166, 55], get_line_color=[13, 148, 136, 240],
-            get_line_width=2, line_width_units='pixels', line_width_min_pixels=2,
+            get_line_width=100, line_width_min_pixels=2, line_width_max_pixels=2,
             pickable=False))
         st.caption('청록색 면과 테두리: 보고서의 해당 국가 · 발생·위험 지역의 범위를 뜻하지 않습니다.')
     else:
