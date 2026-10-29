@@ -5,6 +5,7 @@ import requests
 from dotenv import load_dotenv
 from datetime import datetime
 from database.report_alert_details import get_report_alert_details
+from slack.report_dashboard_link import report_dashboard_url
 
 
 load_dotenv()
@@ -359,6 +360,15 @@ def send_new_report_alert(event):
     # 기존 마지막 블록은 WAHIS 상세보기 버튼
     blocks[-1:-1] = apqa_blocks
 
+
+    dashboard_url = report_dashboard_url(report_id)
+    if dashboard_url:
+        blocks[-1]['elements'].append({
+            'type': 'button',
+            'text': {'type': 'plain_text', 'text': '발생 지도·추이 보기'},
+            'url': dashboard_url,
+            'action_id': 'view_report_dashboard',
+        })
 
     send_slack_message(
         blocks=blocks,

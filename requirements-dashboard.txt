@@ -1,0 +1,9 @@
+# Only dependencies used by the read-only dashboard service.
+pymysql
+cryptography
+python-dotenv
+tzdata
+streamlit>=1.40,<2
+pandas>=2,<3
+pydeck>=0.9,<1
+altair>=4.2,<6

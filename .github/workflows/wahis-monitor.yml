@@ -19,6 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DB_SSL_CA: ca.pem
+      STREAMLIT_DASHBOARD_URL: ${{ vars.STREAMLIT_DASHBOARD_URL }}
 
     steps:
       # -------------------------------------------------

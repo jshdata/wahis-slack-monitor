@@ -6,6 +6,19 @@ from slack import notifier
 
 
 class ReportAlertDetailsTests(unittest.TestCase):
+    @patch.dict('os.environ', {'STREAMLIT_DASHBOARD_URL': 'https://example.test/dashboard'})
+    @patch('apqa.matcher.analyze_apqa', return_value={'priority': 'NORMAL'})
+    @patch.object(notifier, 'get_report_alert_details', return_value={
+        'subtype': '미확인', 'animal_category': '미확인', 'species': '미확인',
+        'new_outbreaks': '미확인'})
+    @patch.object(notifier, 'send_slack_message')
+    def test_report_specific_dashboard_button(self, send, lookup, apqa):
+        notifier.send_new_report_alert({'reportId': 100, 'eventId': 10,
+                                       'country': 'Example', 'disease': 'FMD'})
+        buttons = send.call_args.kwargs['blocks'][-1]['elements']
+        self.assertEqual(len(buttons), 2)
+        self.assertEqual(buttons[1]['url'], 'https://example.test/dashboard?report_id=100')
+
     @patch.object(details, 'get_connection')
     def test_both_categories_and_species_are_read_from_outbreaks(self, connect):
         cur = connect.return_value.cursor.return_value.__enter__.return_value

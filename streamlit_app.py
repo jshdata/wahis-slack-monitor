@@ -1,0 +1,96 @@
+"""Run with: python -m streamlit run streamlit_app.py."""
+import logging
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+import pandas as pd
+import pydeck as pdk
+import altair as alt
+import streamlit as st
+
+from database.report_dashboard_db import load_report_dashboard
+from database.report_alert_details import get_report_alert_details
+
+st.set_page_config(page_title='WAHIS 보고서 대시보드', page_icon='🌍', layout='wide')
+st.title('WAHIS 보고서 대시보드')
+try:
+    report_id = int(st.query_params.get('report_id', '0'))
+    if report_id <= 0:
+        raise ValueError
+except (ValueError, TypeError):
+    st.info('Slack 보고서 알림의 대시보드 버튼으로 열어주세요.')
+    st.stop()
+
+days = st.radio('발생 추이 기간', [30, 90, 365], index=1, format_func=lambda d: f'{d}일', horizontal=True)
+st.caption('기간은 보고서 제출일 기준입니다. 새로고침하면 현재 DB 내용을 다시 조회합니다.')
+st.button('최신 DB 내용 조회')
+try:
+    data = load_report_dashboard(report_id, days)
+except Exception as exc:
+    logging.getLogger(__name__).warning('Report dashboard failed: %s', type(exc).__name__)
+    st.error('데이터를 불러오지 못했습니다. 잠시 후 다시 조회해주세요.')
+    st.stop()
+if data is None:
+    st.warning('저장된 보고서를 찾을 수 없습니다.')
+    st.stop()
+
+report, rows = data['report'], data['outbreaks']
+st.subheader(f"{report['country']} · {report['disease']}")
+st.write(f"Report {report_id} · Event {report['event_id']} · {report['report_type'] or '-'} · {report['event_status'] or '-'}")
+st.write(f"제출일: {report['submission_date'] or '미확인'}")
+details = get_report_alert_details({'reportId': report_id})
+left, right = st.columns(2)
+left.metric('이번 보고 신규 발생', details['new_outbreaks'])
+right.metric('현재 DB에서 확인되는 기존 발생 갱신', sum(r['kind'] != '신규' for r in rows))
+st.caption('과거 보고서의 갱신 이력 전체를 보관하지 않아, 이후 다시 갱신된 발생지는 이 지도에서 빠질 수 있습니다. '
+           '위치·발생일은 현재 DB 값이며 당시 보고서의 스냅샷이 아닙니다.')
+if report['detail_loaded'] != 1:
+    st.warning('이 보고서의 상세 수집이 완료되지 않았습니다. 지도·건수가 불완전할 수 있습니다.')
+st.write(f"혈청형·아형: {details['subtype']} | 사육·야생: {details['animal_category']} | 축종: {details['species']}")
+st.caption('축종·사육·야생은 이번 보고로 갱신된 발생지의 확인된 자료 기준입니다. 미수집은 0이나 사육으로 처리하지 않습니다.')
+
+st.subheader('이번 보고의 발생 위치')
+points = [{'latitude': float(r['latitude']), 'longitude': float(r['longitude']),
+           'outbreak_id': str(r['outbreak_id']), 'kind': r['kind'],
+           'location': r['location'] or '위치명 미확인',
+           'color': [249, 115, 22, 220] if r['kind'] == '신규' else [37, 99, 235, 220]}
+          for r in rows if r['mapped']]
+st.caption(f"확인되는 발생지 {len(rows)}곳 중 좌표가 유효한 {len(points)}곳 표시 · 주황: 신규 / 파랑: 기존 발생 갱신")
+if points:
+    view = pdk.data_utils.compute_view([[p['longitude'], p['latitude']] for p in points])
+    view.zoom = max(1, min(view.zoom, 10))
+    st.pydeck_chart(pdk.Deck(
+        initial_view_state=view, map_style=None,
+        layers=[pdk.Layer('ScatterplotLayer', points,
+                         get_position='[longitude, latitude]', get_fill_color='color',
+                         get_radius=100, radius_min_pixels=7, radius_max_pixels=7,
+                         pickable=True)],
+        tooltip={'text': '발생 ID: {outbreak_id}\n{kind}\n{location}'}))
+else:
+    st.info('표시할 좌표가 없습니다. 아래 목록에서 확인해주세요.')
+st.caption('원의 크기는 동일하며 확산·위험 반경을 뜻하지 않습니다. 근사 위치는 아래 목록에서 구분합니다. '
+           '같은 좌표의 원은 겹칠 수 있습니다.')
+
+st.subheader('동일 국가·질병의 기간별 발생 건수')
+if data['trend']:
+    trend = pd.DataFrame(data['trend'])
+    trend['발생일'] = pd.to_datetime(trend['발생일'])
+    st.altair_chart(alt.Chart(trend).mark_bar().encode(
+        x=alt.X('발생일:T', axis=alt.Axis(format='%m-%d'), title='발생일'),
+        y=alt.Y('발생 건수:Q', axis=alt.Axis(tickMinStep=1, format='d')),
+        tooltip=[alt.Tooltip('발생일:T', format='%Y-%m-%d'), alt.Tooltip('발생 건수:Q', format='d')]
+    ), use_container_width=True)
+    st.caption(f"{data['start']} ~ {data['end']} · 발생일 기준 고유 발생 ID 집계 · 후속 보고 중복 제외 · "
+               '축종·사육·야생 필터 미적용 · 미수집 발생 및 발생일 미상은 반영되지 않습니다.')
+else:
+    st.info('제출일이 없어 추이 기간을 정할 수 없습니다.')
+
+st.subheader('발생지 상세 목록')
+table = [{'발생 ID': r['outbreak_id'], '구분': r['kind'], '지역': r['admin_division'],
+          '위치': r['location'], '근사 위치(원본)': str(r['location_approx']), '발생일': r['start_date'],
+          '위도': r['latitude'], '경도': r['longitude'], '지도 표시': r['mapped']} for r in rows]
+if table:
+    st.dataframe(pd.DataFrame(table), hide_index=True, use_container_width=True)
+else:
+    st.info('현재 DB에서 이 보고서와 연결되는 발생지가 없습니다. 발생이 없다는 뜻은 아닙니다.')
+st.caption('조회 시각: ' + datetime.now(ZoneInfo('Asia/Seoul')).strftime('%Y-%m-%d %H:%M:%S KST'))

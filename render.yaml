@@ -1,0 +1,24 @@
+# A separate dashboard service; does not reconfigure the existing Slack bot.
+services:
+  - type: web
+    name: wahis-report-dashboard
+    runtime: python
+    plan: free
+    buildCommand: python -m pip install -r requirements-dashboard.txt
+    startCommand: python -m streamlit run streamlit_app.py --server.address 0.0.0.0 --server.port $PORT --server.headless true --browser.gatherUsageStats false
+    healthCheckPath: /_stcore/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.10
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_NAME
+        sync: false
+      - key: DB_SSL_CA_CONTENT
+        sync: false
