@@ -251,3 +251,10 @@ Streamlit 서비스 배포와 알림 프로세스의 STREAMLIT_DASHBOARD_URL 설
 - **근거:** [정량 집계](../../database/report_quantitative_dashboard.py),
   [정량 화면](../../slack/report_quantitative_view.py), [정량 테스트](../../tests/test_report_quantitative_dashboard.py),
   [발생지 조회](../../database/report_dashboard_db.py), [앱](../../streamlit_app.py).
+- **배포 후속:** 기능 커밋 `99d7d3c`를 main에 푸시했고 배포
+  `dep-dbhe0cnb9u1s739og900`가 2026-10-29 14:58 KST에 live로 완료된 것을 확인했다.
+- **첫 공개 검증·보완:** 실제 화면에서 이번 보고 감염·폐사 확인분 3과 일부 미보고,
+  누계 전환 후 각각 26 및 축종별 표가 표시됐다. 3열 병렬 비교 그래프는 화면 폭을 넘어
+  일부가 잘려 감염·폐사·살처분 항목 선택형 단일 비교 그래프로 바꾼다.
+  발생지 브라우저 선택 검증은 재렌더 도중 마지막 combobox가 단위 선택으로 잡혀
+  옵션 대기 시간이 초과됐다. 발생지 선택 라벨로 대상을 특정해 다시 검증한다.

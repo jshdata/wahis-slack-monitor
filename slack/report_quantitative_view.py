@@ -46,12 +46,13 @@ def render_quantities(report_id):
     table, comparisons = species_quantities(selected)
     st.dataframe(pd.DataFrame(table), hide_index=True, use_container_width=True)
     if len(table) > 1 and comparisons:
-        # Facets compare independent metrics without suggesting additive stacks.
-        comparison = alt.Chart(pd.DataFrame(comparisons)).mark_bar().encode(
+        metric_options = [label for label in ('감염', '폐사', '살처분')
+                          if any(r['항목'] == label for r in comparisons)]
+        metric = st.selectbox('축종 비교 항목', metric_options, key='quantity_compare_metric')
+        comparison = alt.Chart(pd.DataFrame([r for r in comparisons if r['항목'] == metric])).mark_bar().encode(
             x=alt.X('수량:Q', title=f'수량 ({unit})'),
             y=alt.Y('축종·구분:N', title=None),
             tooltip=['축종·구분:N', '항목:N', '수량:Q', '자료 상태:N']
-        ).properties(height=max(120, min(500, len(table) * 35 + 60))).facet(
-            column=alt.Column('항목:N', title=None)).resolve_scale(x='independent')
+        ).properties(height=max(160, min(500, len(table) * 35 + 80)))
         st.altair_chart(comparison, use_container_width=True)
     st.caption('이 표는 선택한 보고서·범위·단위의 축종별 정량자료입니다. 발생지별 축종 수집 현황과 자료 범위가 다를 수 있습니다.')
