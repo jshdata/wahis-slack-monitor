@@ -107,7 +107,7 @@ if data['trend']:
             x=alt.X('발생일:T', scale=scale, axis=alt.Axis(format='%m-%d', tickCount=6), title='발생일'),
             y=alt.value(25),
             tooltip=[alt.Tooltip('발생일:T', format='%Y-%m-%d'), alt.Tooltip('발생 건수:Q', format='d')])
-        st.altair_chart((baseline + dots).properties(height=50).configure_view(stroke=None),
+        st.altair_chart((baseline + dots).properties(height=90).configure_view(stroke=None),
                        use_container_width=True)
         st.caption('점 하나는 발생이 확인된 날짜입니다. 점에 마우스를 올리면 해당 날짜의 발생 건수를 볼 수 있습니다.')
     else:
