@@ -10,6 +10,7 @@ import streamlit as st
 
 from database.report_dashboard_db import load_report_dashboard
 from database.report_alert_details import get_report_alert_details
+from slack.country_map import country_boundary
 
 st.set_page_config(page_title='WAHIS 보고서 대시보드', page_icon='🌍', layout='wide')
 st.title('WAHIS 보고서 대시보드')
@@ -57,19 +58,32 @@ points = [{'latitude': float(r['latitude']), 'longitude': float(r['longitude']),
           for r in rows if r['mapped']]
 st.caption(f"확인되는 발생지 {len(rows)}곳 중 좌표가 유효한 {len(points)}곳 표시 · 주황: 신규 / 파랑: 기존 발생 갱신")
 if points:
+    boundary = country_boundary(report['country'])
+    layers = []
+    if boundary['features']:
+        layers.append(pdk.Layer(
+            'GeoJsonLayer', boundary, filled=True, stroked=True,
+            get_fill_color=[20, 184, 166, 55], get_line_color=[13, 148, 136, 240],
+            get_line_width=2, line_width_units='pixels', line_width_min_pixels=2,
+            pickable=False))
+        st.caption('청록색 면과 테두리: 보고서의 해당 국가 · 발생·위험 지역의 범위를 뜻하지 않습니다.')
+    else:
+        st.caption('해당 국가의 경계 자료를 연결하지 못해 발생 지점만 표시합니다.')
+    layers.append(pdk.Layer('ScatterplotLayer', points,
+                            get_position='[longitude, latitude]', get_fill_color='color',
+                            get_radius=100, radius_min_pixels=7, radius_max_pixels=7,
+                            pickable=True))
     view = pdk.data_utils.compute_view([[p['longitude'], p['latitude']] for p in points])
     view.zoom = max(1, min(view.zoom, 10))
     st.pydeck_chart(pdk.Deck(
         initial_view_state=view, map_style=None,
-        layers=[pdk.Layer('ScatterplotLayer', points,
-                         get_position='[longitude, latitude]', get_fill_color='color',
-                         get_radius=100, radius_min_pixels=7, radius_max_pixels=7,
-                         pickable=True)],
+        layers=layers,
         tooltip={'text': '발생 ID: {outbreak_id}\n{kind}\n{location}'}))
 else:
     st.info('표시할 좌표가 없습니다. 아래 목록에서 확인해주세요.')
 st.caption('원의 크기는 동일하며 확산·위험 반경을 뜻하지 않습니다. 근사 위치는 아래 목록에서 구분합니다. '
            '같은 좌표의 원은 겹칠 수 있습니다.')
+st.caption('국가 경계: Natural Earth 1:50m v5.1.2 · 지도 식별용 일반화 자료')
 
 st.subheader('동일 국가·질병의 기간별 발생 건수')
 if data['trend']:
