@@ -89,11 +89,29 @@ st.subheader('동일 국가·질병의 기간별 발생 건수')
 if data['trend']:
     trend = pd.DataFrame(data['trend'])
     trend['발생일'] = pd.to_datetime(trend['발생일'])
-    st.altair_chart(alt.Chart(trend).mark_bar().encode(
-        x=alt.X('발생일:T', axis=alt.Axis(format='%m-%d'), title='발생일'),
-        y=alt.Y('발생 건수:Q', axis=alt.Axis(tickMinStep=1, format='d')),
-        tooltip=[alt.Tooltip('발생일:T', format='%Y-%m-%d'), alt.Tooltip('발생 건수:Q', format='d')]
-    ), use_container_width=True)
+    occurrences = trend[trend['발생 건수'] > 0]
+    total = int(occurrences['발생 건수'].sum())
+    st.metric(f'선택한 {days}일의 발생 합계', f'{total}건')
+    if not occurrences.empty:
+        dates = occurrences['발생일'].dt.strftime('%Y-%m-%d').tolist()
+        st.write('**발생일:** ' + (dates[0] if len(dates) == 1 else
+                 f'{dates[0]} ~ {dates[-1]} · 총 {len(dates)}일에 발생'))
+        scale = alt.Scale(domain=[pd.Timestamp(data['start']).isoformat(),
+                                  pd.Timestamp(data['end']).isoformat()])
+        baseline = alt.Chart(pd.DataFrame([{'start': pd.Timestamp(data['start']),
+                                           'end': pd.Timestamp(data['end'])}])).mark_rule(
+                                               color='#94a3b8', strokeWidth=2).encode(
+            x=alt.X('start:T', scale=scale, axis=alt.Axis(format='%m-%d', tickCount=6), title='발생일'),
+            x2='end:T', y=alt.value(25))
+        dots = alt.Chart(occurrences).mark_circle(size=110, color='#2563eb', opacity=1).encode(
+            x=alt.X('발생일:T', scale=scale, axis=alt.Axis(format='%m-%d', tickCount=6), title='발생일'),
+            y=alt.value(25),
+            tooltip=[alt.Tooltip('발생일:T', format='%Y-%m-%d'), alt.Tooltip('발생 건수:Q', format='d')])
+        st.altair_chart((baseline + dots).properties(height=50).configure_view(stroke=None),
+                       use_container_width=True)
+        st.caption('점 하나는 발생이 확인된 날짜입니다. 점에 마우스를 올리면 해당 날짜의 발생 건수를 볼 수 있습니다.')
+    else:
+        st.info('선택 기간에 DB에서 확인되는 발생이 없습니다.')
     st.caption(f"{data['start']} ~ {data['end']} · 발생일 기준 고유 발생 ID 집계 · 후속 보고 중복 제외 · "
                '축종·사육·야생 필터 미적용 · 미수집 발생 및 발생일 미상은 반영되지 않습니다.')
 else:

@@ -79,6 +79,19 @@ class ReportDashboardTests(unittest.TestCase):
         self.assertEqual(app.metric[0].value, '미확인')
         self.assertEqual(len(app.warning), 1)
         self.assertTrue(any('2곳 중' in c.value and '1곳 표시' in c.value for c in app.caption))
+        self.assertEqual(app.metric[-1].value, '1건')
+        for counts in ([0, 0], [2, 3]):
+            sample['trend'] = [{'발생일': date(2026, 10, 28 + i), '발생 건수': count}
+                               for i, count in enumerate(counts)]
+            with patch('database.report_dashboard_db.load_report_dashboard', return_value=sample), \
+                 patch('database.report_alert_details.get_report_alert_details', return_value={
+                     'new_outbreaks': '미확인', 'subtype': '미확인',
+                     'animal_category': '미확인', 'species': '미확인'}):
+                app.run()
+            self.assertEqual(len(app.exception), 0)
+            self.assertEqual(app.metric[-1].value, f'{sum(counts)}건')
+            if not sum(counts):
+                self.assertTrue(any('DB에서 확인되는 발생이 없습니다' in info.value for info in app.info))
 
     def test_streamlit_requires_report_link(self):
         from streamlit.testing.v1 import AppTest
