@@ -300,3 +300,11 @@ Streamlit 서비스 배포와 알림 프로세스의 STREAMLIT_DASHBOARD_URL 설
 - **근거:** [선택·CSV 도우미](../../slack/dashboard_interactions.py),
   [상세 패널](../../slack/outbreak_detail_view.py), [검증](../../tests/test_dashboard_interactions.py),
   [앱](../../streamlit_app.py), [정량 화면](../../slack/report_quantitative_view.py).
+- **배포 후속:** 기능 커밋 `ebd7f42`를 main에 푸시했고 배포
+  `dep-dbhf60favr4c739oln60`가 2026-10-29 16:18 KST에 live로 완료됐다.
+- **최종 상태: 해결(지도 연동·CSV 다운로드):** 운영 주소에서도 실제 원 클릭으로
+  198839 상세가 선택됐고, 목록 190677로 변경 후 같은 원 재클릭이 다시 동작했다.
+  선택 발생지·전체 발생지·누계 Animal 정량·30일 추이 CSV 네 종류를 실제 다운로드해
+  각각 1·2·3·30행, 정량 감염 합계26, 선택 범위·단위·BOM을 재확인했다. 화면 예외 0건이었다.
+  운영 DB 수정·수집·Slack 발송 없이 검증했다. 기간 필터와 발생지 전체 범위의 차이는
+  안내문과 파일의 범위 메타데이터로 유지한다.
