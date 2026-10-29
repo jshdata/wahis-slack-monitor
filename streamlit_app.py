@@ -136,7 +136,7 @@ try:
             st.altair_chart(alt.Chart(pd.DataFrame(species_data['species'])).mark_bar().encode(
                 x=alt.X('발생지 수:Q', axis=alt.Axis(tickMinStep=1, format='d'), title='발생지 수(곳)'),
                 y=alt.Y('축종:N', sort='-x'), tooltip=['축종:N', '발생지 수:Q']
-            ).properties(height=max(80, min(400, len(species_data['species']) * 28))),
+            ).properties(height=max(160, min(600, len(species_data['species']) * 32 + 80))),
                 use_container_width=True)
             st.caption('같은 발생지에 여러 축종이 있으면 각 축종에 한 번씩 포함됩니다. 축종별 수를 더하면 전체 발생지 수와 다를 수 있습니다. '
                        '확인된 축종명만 그래프에 표시하며 미확인은 아래 목록에서 구분합니다.')

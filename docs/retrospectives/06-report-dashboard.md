@@ -216,3 +216,7 @@ Streamlit 서비스 배포와 알림 프로세스의 STREAMLIT_DASHBOARD_URL 설
   이번 변경에 포함하지 않았다. 실제 운영 배포 확인은 후속 기록으로 구분한다.
 - **근거:** [조회·집계](../../database/report_species_dashboard.py),
   [집계 테스트](../../tests/test_report_species_dashboard.py), [앱](../../streamlit_app.py).
+- **첫 배포·시각 보완:** 기능 커밋 `f712ea6`의 배포 `dep-dbhdq1ou01pc73a6fer0`가
+  2026-10-29 14:44 KST에 live로 완료됐다. 실제 186834 화면에서 사육 1·야생 1·혼합 0·미확인 0곳,
+  두 축종 및 상세 목록 열이 표시되고 예외는 없었다. 그러나 축종 그래프 높이가 작아
+  이름이 겹쳐 보여 최소 높이 160과 축 여백을 확보하도록 보완한다.
