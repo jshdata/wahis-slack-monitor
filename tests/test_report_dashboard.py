@@ -70,7 +70,12 @@ class ReportDashboardTests(unittest.TestCase):
                   'start': date(2026, 10, 1), 'end': date(2026, 10, 29)}
         app = AppTest.from_file('streamlit_app.py', default_timeout=15)
         app.query_params['report_id'] = '100'
+        species_sample = {'sites': {1: {'category': '사육', 'species': 'Birds'},
+                                    2: {'category': '미확인', 'species': '미확인'}},
+                          'categories': {'사육': 1, '야생': 0, '혼합': 0, '미확인': 1},
+                          'species': [{'축종': 'Birds', '발생지 수': 1}]}
         with patch('database.report_dashboard_db.load_report_dashboard', return_value=sample), \
+             patch('database.report_species_dashboard.load_report_species', return_value=species_sample), \
              patch('database.report_alert_details.get_report_alert_details', return_value={
                  'new_outbreaks': '미확인', 'subtype': '미확인',
                  'animal_category': '미확인', 'species': '미확인'}):
@@ -79,17 +84,19 @@ class ReportDashboardTests(unittest.TestCase):
         self.assertEqual(app.metric[0].value, '미확인')
         self.assertEqual(len(app.warning), 1)
         self.assertTrue(any('2곳 중' in c.value and '1곳 표시' in c.value for c in app.caption))
-        self.assertEqual(app.metric[-1].value, '1건')
+        self.assertEqual(app.metric[2].value, '1건')
+        self.assertEqual([m.value for m in app.metric[3:]], ['1곳', '0곳', '0곳', '1곳'])
         for counts in ([0, 0], [2, 3]):
             sample['trend'] = [{'발생일': date(2026, 10, 28 + i), '발생 건수': count}
                                for i, count in enumerate(counts)]
             with patch('database.report_dashboard_db.load_report_dashboard', return_value=sample), \
+                 patch('database.report_species_dashboard.load_report_species', return_value=species_sample), \
                  patch('database.report_alert_details.get_report_alert_details', return_value={
                      'new_outbreaks': '미확인', 'subtype': '미확인',
                      'animal_category': '미확인', 'species': '미확인'}):
                 app.run()
             self.assertEqual(len(app.exception), 0)
-            self.assertEqual(app.metric[-1].value, f'{sum(counts)}건')
+            self.assertEqual(app.metric[2].value, f'{sum(counts)}건')
             if not sum(counts):
                 self.assertTrue(any('DB에서 확인되는 발생이 없습니다' in info.value for info in app.info))
 

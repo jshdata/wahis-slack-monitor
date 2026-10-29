@@ -11,6 +11,7 @@ import streamlit as st
 from database.report_dashboard_db import load_report_dashboard
 from database.report_alert_details import get_report_alert_details
 from slack.country_map import country_boundary
+from database.report_species_dashboard import load_report_species
 
 st.set_page_config(page_title='WAHIS 보고서 대시보드', page_icon='🌍', layout='wide')
 st.title('WAHIS 보고서 대시보드')
@@ -117,10 +118,42 @@ if data['trend']:
 else:
     st.info('제출일이 없어 추이 기간을 정할 수 없습니다.')
 
+st.subheader('이번 보고의 축종·사육·야생 현황')
+species_sites = {}
+try:
+    species_data = load_report_species(report_id)
+    # Align this enrichment to the same site set as the map/table snapshot.
+    expected_ids = {r['outbreak_id'] for r in rows}
+    if set(species_data['sites']) != expected_ids:
+        raise ValueError('Outbreak set changed during dashboard query')
+    species_sites = species_data['sites']
+    if species_sites:
+        for column, category in zip(st.columns(4), ('사육', '야생', '혼합', '미확인')):
+            column.metric(f'{category} 발생지', f"{species_data['categories'][category]}곳")
+        st.caption('현재 이 보고서에 연결되는 신규·갱신 발생지 기준입니다. 혼합은 사육·야생이 함께 확인된 발생지입니다. '
+                   '분류 미수집·부분 미확인·보고서 버전 불일치는 미확인으로 표시합니다. 동물 마릿수가 아닙니다.')
+        if species_data['species']:
+            st.altair_chart(alt.Chart(pd.DataFrame(species_data['species'])).mark_bar().encode(
+                x=alt.X('발생지 수:Q', axis=alt.Axis(tickMinStep=1, format='d'), title='발생지 수(곳)'),
+                y=alt.Y('축종:N', sort='-x'), tooltip=['축종:N', '발생지 수:Q']
+            ).properties(height=max(80, min(400, len(species_data['species']) * 28))),
+                use_container_width=True)
+            st.caption('같은 발생지에 여러 축종이 있으면 각 축종에 한 번씩 포함됩니다. 축종별 수를 더하면 전체 발생지 수와 다를 수 있습니다. '
+                       '확인된 축종명만 그래프에 표시하며 미확인은 아래 목록에서 구분합니다.')
+        else:
+            st.info('이 보고서에서 확인되는 축종명이 없습니다.')
+    else:
+        st.info('현재 이 보고서에 연결되는 발생지가 없어 축종·사육·야생 현황을 표시할 수 없습니다.')
+except Exception as exc:
+    logging.getLogger(__name__).warning('Report species dashboard failed: %s', type(exc).__name__)
+    st.info('축종·사육·야생 상세 자료를 불러오지 못했습니다. 미확인을 0건으로 처리하지 않습니다.')
+
 st.subheader('발생지 상세 목록')
 table = [{'발생 ID': r['outbreak_id'], '구분': r['kind'], '지역': r['admin_division'],
           '위치': r['location'], '근사 위치(원본)': str(r['location_approx']), '발생일': r['start_date'],
-          '위도': r['latitude'], '경도': r['longitude'], '지도 표시': r['mapped']} for r in rows]
+          '위도': r['latitude'], '경도': r['longitude'], '지도 표시': r['mapped'],
+          '사육·야생': species_sites.get(r['outbreak_id'], {}).get('category', '미확인'),
+          '축종': species_sites.get(r['outbreak_id'], {}).get('species', '미확인')} for r in rows]
 if table:
     st.dataframe(pd.DataFrame(table), hide_index=True, use_container_width=True)
 else:
