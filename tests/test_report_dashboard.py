@@ -62,10 +62,12 @@ class ReportDashboardTests(unittest.TestCase):
                   'report_type': 'Follow-up', 'event_status': 'Ongoing', 'detail_loaded': 0},
                   'outbreaks': [{'outbreak_id': 1, 'kind': '신규', 'mapped': True,
                     'latitude': 35, 'longitude': 127, 'admin_division': 'Region',
-                    'location': 'Place', 'location_approx': True, 'start_date': date(2026, 10, 28)},
+                    'location': 'Place', 'location_approx': True, 'start_date': date(2026, 10, 28),
+                    'description': 'FIRST SITE TEXT', 'epi_unit_type': 'Farm', 'end_date': None},
                     {'outbreak_id': 2, 'kind': '기존 발생 갱신', 'mapped': False,
                     'latitude': None, 'longitude': None, 'admin_division': None,
-                    'location': None, 'location_approx': None, 'start_date': None}],
+                    'location': None, 'location_approx': None, 'start_date': None,
+                    'description': 'SECOND SITE TEXT', 'epi_unit_type': 'Village', 'end_date': None}],
                   'trend': [{'발생일': date(2026, 10, 29), '발생 건수': 1}],
                   'start': date(2026, 10, 1), 'end': date(2026, 10, 29)}
         app = AppTest.from_file('streamlit_app.py', default_timeout=15)
@@ -75,6 +77,7 @@ class ReportDashboardTests(unittest.TestCase):
                           'categories': {'사육': 1, '야생': 0, '혼합': 0, '미확인': 1},
                           'species': [{'축종': 'Birds', '발생지 수': 1}]}
         with patch('database.report_dashboard_db.load_report_dashboard', return_value=sample), \
+             patch('slack.report_quantitative_view.load_report_quantities', return_value=[]), \
              patch('database.report_species_dashboard.load_report_species', return_value=species_sample), \
              patch('database.report_alert_details.get_report_alert_details', return_value={
                  'new_outbreaks': '미확인', 'subtype': '미확인',
@@ -86,10 +89,13 @@ class ReportDashboardTests(unittest.TestCase):
         self.assertTrue(any('2곳 중' in c.value and '1곳 표시' in c.value for c in app.caption))
         self.assertEqual(app.metric[2].value, '1건')
         self.assertEqual([m.value for m in app.metric[3:]], ['1곳', '0곳', '0곳', '1곳'])
+        self.assertTrue(any(t.value == 'FIRST SITE TEXT' for t in app.text))
+        app.selectbox[-1].set_value(2)
         for counts in ([0, 0], [2, 3]):
             sample['trend'] = [{'발생일': date(2026, 10, 28 + i), '발생 건수': count}
                                for i, count in enumerate(counts)]
             with patch('database.report_dashboard_db.load_report_dashboard', return_value=sample), \
+                 patch('slack.report_quantitative_view.load_report_quantities', return_value=[]), \
                  patch('database.report_species_dashboard.load_report_species', return_value=species_sample), \
                  patch('database.report_alert_details.get_report_alert_details', return_value={
                      'new_outbreaks': '미확인', 'subtype': '미확인',
@@ -97,6 +103,7 @@ class ReportDashboardTests(unittest.TestCase):
                 app.run()
             self.assertEqual(len(app.exception), 0)
             self.assertEqual(app.metric[2].value, f'{sum(counts)}건')
+            self.assertTrue(any(t.value == 'SECOND SITE TEXT' for t in app.text))
             if not sum(counts):
                 self.assertTrue(any('DB에서 확인되는 발생이 없습니다' in info.value for info in app.info))
 

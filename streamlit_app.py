@@ -12,6 +12,7 @@ from database.report_dashboard_db import load_report_dashboard
 from database.report_alert_details import get_report_alert_details
 from slack.country_map import country_boundary
 from database.report_species_dashboard import load_report_species
+from slack.report_quantitative_view import render_quantities
 
 st.set_page_config(page_title='WAHIS 보고서 대시보드', page_icon='🌍', layout='wide')
 st.title('WAHIS 보고서 대시보드')
@@ -50,6 +51,8 @@ if report['detail_loaded'] != 1:
     st.warning('이 보고서의 상세 수집이 완료되지 않았습니다. 지도·건수가 불완전할 수 있습니다.')
 st.write(f"혈청형·아형: {details['subtype']} | 사육·야생: {details['animal_category']} | 축종: {details['species']}")
 st.caption('축종·사육·야생은 이번 보고로 갱신된 발생지의 확인된 자료 기준입니다. 미수집은 0이나 사육으로 처리하지 않습니다.')
+
+render_quantities(report_id)
 
 st.subheader('이번 보고의 발생 위치')
 points = [{'latitude': float(r['latitude']), 'longitude': float(r['longitude']),
@@ -156,6 +159,22 @@ table = [{'발생 ID': r['outbreak_id'], '구분': r['kind'], '지역': r['admin
           '축종': species_sites.get(r['outbreak_id'], {}).get('species', '미확인')} for r in rows]
 if table:
     st.dataframe(pd.DataFrame(table), hide_index=True, use_container_width=True)
+    selected_id = st.selectbox('발생지 상세 보기', [r['outbreak_id'] for r in rows],
+                               format_func=lambda oid: next(
+                                   f"{r['outbreak_id']} · {r['location'] or r['admin_division'] or '위치명 미확인'}"
+                                   for r in rows if r['outbreak_id'] == oid))
+    site = next(r for r in rows if r['outbreak_id'] == selected_id)
+    st.write(f"**발생 ID:** {selected_id} · **구분:** {site['kind']}")
+    st.write(f"**지역:** {site['admin_division'] or '미확인'} · **위치:** {site['location'] or '미확인'}")
+    st.write(f"**역학 단위:** {site.get('epi_unit_type') or '미확인'} · "
+             f"**집단 발생 역학 단위 수:** {site.get('cluster_count') if site.get('cluster_count') is not None else '미확인'}")
+    st.write(f"**시작일:** {site['start_date'] or '미확인'} · **종료일:** {site.get('end_date') or '미보고'}")
+    classification = species_sites.get(selected_id, {})
+    st.write(f"**축종:** {classification.get('species', '미확인')} · "
+             f"**사육·야생:** {classification.get('category', '미확인')}")
+    st.caption('발생지 상세는 현재 DB 상태입니다. 과거 보고서 당시의 스냅샷이 아닙니다. 종료일 미보고를 진행 중으로 단정하지 않습니다.')
+    st.write('**발생지·역학 상황 원문 설명**')
+    st.text(site.get('description') or '저장된 원문 설명이 없습니다.')
 else:
     st.info('현재 DB에서 이 보고서와 연결되는 발생지가 없습니다. 발생이 없다는 뜻은 아닙니다.')
 st.caption('조회 시각: ' + datetime.now(ZoneInfo('Asia/Seoul')).strftime('%Y-%m-%d %H:%M:%S KST'))

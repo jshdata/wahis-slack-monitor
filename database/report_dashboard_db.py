@@ -33,7 +33,8 @@ def load_report_dashboard(report_id, days=90):
             # Never label every outbreak in the event as belonging to this report.
             cur.execute('''SELECT outbreak_id, created_by_report_id, last_update_report_id,
                            location, admin_division, location_approx, start_date,
-                           latitude, longitude FROM outbreaks
+                           latitude, longitude, epi_unit_type, cluster_count,
+                           end_date, description FROM outbreaks
                            WHERE created_by_report_id=%s OR
                            COALESCE(last_update_report_id,created_by_report_id)=%s
                            ORDER BY outbreak_id''', (report_id, report_id))
