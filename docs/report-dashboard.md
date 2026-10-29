@@ -1,5 +1,19 @@
 # 보고서별 Streamlit 대시보드
 
+## 현재 운영 상태 (2026-10-29)
+
+[보고서 화면 예시](https://wahis-report-dashboard.onrender.com/?report_id=186834)
+
+Render의 별도 무료 서비스 `wahis-report-dashboard`를 Oregon 리전에 직접 생성했고
+공개 health HTTP 200 및 실제 보고서 DB 조회·지도·추이·목록 생성을 확인했다.
+GitHub Actions의 `STREAMLIT_DASHBOARD_URL` 변수도 설정·재조회 확인했다.
+다음 신규 보고서 알림부터 버튼이 붙으며 기존 메시지에는 소급 추가되지 않는다.
+실제 신규 Slack 알림의 버튼 사용 확인은 아직 남아 있다.
+
+실제 서비스는 MCP 직접 생성으로 관리한다. 아래 render.yaml은 재현용 참고이며
+현재 서비스를 Blueprint로 등록한 것이 아니다. 서비스 자체의 health 검사는 기본 TCP이고
+`/_stcore/health` HTTP 응답은 별도로 확인했다.
+
 Slack 신규 보고서 알림에서 해당 Report ID의 발생 위치와 동일 국가·질병의 발생 추이를 연다.
 기존 HTML 통계 대시보드는 유지한다.
 
