@@ -8,7 +8,7 @@ WOAH(세계동물보건기구) **WAHIS**에 새로 등록되는 동물질병 리
 수집 작업과 사용자 조회 서비스를 분리하고, 같은 Aiven MySQL 데이터를 사용합니다.
 
 ```mermaid
-flowchart TB
+flowchart LR
     SOURCE["WAHIS API<br/>보고서 · 발생지 · 정량자료"]
     TIMER["정기 실행 / 수동 실행<br/>GitHub schedule · 외부 dispatch"]
 
@@ -196,7 +196,7 @@ python outbreak_species_load.py --all --max-minutes 60
 ## 동작 흐름
 
 ```mermaid
-flowchart TD
+flowchart LR
     START["모니터 실행"] --> RECOVER["이전 미완료 상세정보 · 알림 복구"]
     RECOVER --> FETCH["최신 보고서 목록 조회"]
     FETCH --> NEW{"DB에 없는 report_id인가?"}
@@ -227,7 +227,7 @@ Event는 사건 묶음, Report는 최초·후속 보고, Outbreak는 고유 발�
 아래 Event는 별도 DB 테이블이 아니라 `event_id`로 표현되는 논리적 묶음입니다.
 
 ```mermaid
-flowchart TB
+flowchart LR
     EVENT["Event · event_id<br/>질병 사건 묶음"]
     REPORT["disease_reports<br/>report_id · 제출일 · 아형"]
     OUTBREAK["outbreaks<br/>outbreak_id · 발생일 · 위치<br/>사육 / 야생 / 혼합 / 미확인"]
