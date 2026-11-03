@@ -2,6 +2,73 @@
 
 WOAH(세계동물보건기구) **WAHIS**에 새로 등록되는 동물질병 리포트를 자동으로 감지해 DB에 저장하고, Slack으로 알림과 조회·통계 기능을 제공하는 프로젝트입니다. ntfy를 설정하면 신규 보고 알림을 함께 받을 수 있습니다.
 
+## 서비스 흐름 한눈에 보기
+
+**새 보고 수집 → 발생지·축종 저장 → Slack 알림 → 지도·추이·상세자료 확인**으로 이어집니다.
+수집 작업과 사용자 조회 서비스를 분리하고, 같은 Aiven MySQL 데이터를 사용합니다.
+
+```mermaid
+flowchart TB
+    SOURCE["WAHIS API<br/>보고서 · 발생지 · 정량자료"]
+    TIMER["정기 실행 / 수동 실행<br/>GitHub schedule · 외부 dispatch"]
+
+    subgraph COLLECT["GitHub Actions · 수집 및 알림"]
+        direction TB
+        MONITOR["main.py<br/>신규 보고 탐지 · 상세 적재"]
+        ALERT["신규 보고 알림<br/>신규 발생 수 · 축종 · 사육/야생 · 아형"]
+    end
+
+    DB[("Aiven MySQL<br/>보고서 · 발생지 · 축종 · 정량자료")]
+    SLACK["Slack<br/>알림 수신 · 검색 및 통계 요청"]
+    NTFY["ntfy<br/>선택적 동시 알림"]
+
+    subgraph VIEW["상시 조회 · 시각화 서비스"]
+        direction TB
+        BOT["Slack 조회 봇<br/>Socket Mode · 조건 검색"]
+        HTML["HTML 통계·주간표<br/>큰 표 · Plotly · 발생 여부"]
+        DASH["Render · Streamlit<br/>보고서별 지도 · 추이 · 상세 · CSV"]
+    end
+
+    FILES[("비공개 객체 저장소<br/>WOAH PDF · 방역조치 스냅샷")]
+    BROWSER["브라우저<br/>자료 확인 · 다운로드"]
+
+    TIMER --> MONITOR
+    SOURCE -->|원본 수집| MONITOR
+    MONITOR -->|저장 · 완료 상태 기록| DB
+    DB -->|알림용 정보 조회| ALERT
+    MONITOR --> ALERT
+    ALERT --> SLACK
+    ALERT -.->|설정 시| NTFY
+    SLACK <-->|검색 · 조회 결과| BOT
+    DB -->|조회| BOT
+    BOT -->|큰 표 생성| HTML
+    HTML --> BROWSER
+    SLACK -->|보고서 ID가 담긴 버튼| DASH
+    DB -->|읽기 전용 조회| DASH
+    DASH --> BROWSER
+    FILES -.->|PDF · 자료 조회| BOT
+
+    classDef source fill:#eff6ff,stroke:#2563eb,color:#172554
+    classDef job fill:#fff7ed,stroke:#ea580c,color:#431407
+    classDef storage fill:#f5f3ff,stroke:#7c3aed,color:#2e1065
+    classDef view fill:#ecfdf5,stroke:#059669,color:#064e3b
+    class SOURCE,TIMER source
+    class MONITOR,ALERT job
+    class DB,FILES storage
+    class SLACK,NTFY,BOT,HTML,DASH,BROWSER view
+```
+
+- **알림에서 바로 확인:** 보고서 대시보드 버튼에 `report_id`를 전달합니다.
+  지도 지점 선택과 발생지 상세를 연결하고, 30·90·365일 추이와 범위별 CSV를 제공합니다.
+  버튼은 `STREAMLIT_DASHBOARD_URL` 설정 시 표시됩니다.
+- **과거 자료 탐색:** `/wahis`로 보고서를 검색하고 `/wahis-stats`로 통계·큰 표를 엽니다.
+- **저장소 역할 분리:** DB에는 집계·조회용 자료를, 객체 저장소에는 PDF와 방역조치 파일을 둡니다.
+  현재 축종 적재는 발생지 상세 원본 JSON을 보관하지 않습니다.
+
+다이어그램은 데이터·사용자 흐름을 나타냅니다. 상시 Slack 봇·HTML 서버의 접속 주소는
+배포 환경의 `STATS_REPORT_BASE_URL` 등으로 정하고, Render의 보고서별 Streamlit 서비스는
+별도 `render.yaml`로 구성합니다. PDF·방역조치 원천 수집은 각 전용 수집 작업을 사용합니다.
+
 ## 개발·운영 회고록
 
 [프로젝트 회고록](docs/retrospectives/README.md)에 최초 구상부터 수집·배포·통계·
@@ -115,32 +182,83 @@ python outbreak_species_load.py --all --max-minutes 60
 
 ## 배포 구조
 
-```
-cron-job (10분마다) ──▶ GitHub Actions ──▶ main.py ──▶ Aiven MySQL
-                                                  └──▶ Slack Webhook 알림
-
-Railway (상시 실행) ──▶ slack/query_app.py ◀──▶ Slack (/wahis, /wahis-stats)
-                                  └──▶ Aiven MySQL
-```
+위 서비스 흐름도에서 수집·알림과 상시 조회를 분리합니다.
 
 | 구성 요소 | 역할 |
 |-----------|------|
-| cron-job | 10분마다 GitHub API(`workflow_dispatch`)를 호출해 모니터링 실행 |
+| 실행 트리거 | GitHub schedule 및 수동 `workflow_dispatch`. 외부 cron-job도 dispatch 호출 가능 |
 | GitHub Actions | `main.py` 실행 (신규 리포트 탐지·저장·알림) |
-| Railway | Slack 조회·통계 봇(`slack/query_app.py`) 상시 실행 |
+| 상시 Slack 봇·HTML 서버 | `slack/query_app.py` 실행, 조회·통계·큰 표 제공. 기존 Railway 또는 설정된 배포 주소 사용 |
+| Render 보고서 대시보드 | `streamlit_app.py` 실행. 알림의 보고서 ID로 지도·추이·상세·CSV 제공 |
 | Aiven | MySQL 데이터베이스 (SSL 연결) |
+| 비공개 객체 저장소 | WOAH PDF 원본과 검증된 방역조치 스냅샷 보관 |
 
 ## 동작 흐름
 
+```mermaid
+flowchart TD
+    START["모니터 실행"] --> RECOVER["이전 미완료 상세정보 · 알림 복구"]
+    RECOVER --> FETCH["최신 보고서 목록 조회"]
+    FETCH --> NEW{"DB에 없는 report_id인가?"}
+    NEW -->|아니요| SKIP["신규 알림 대상에서 제외<br/>기존 복구 작업은 별도로 수행"]
+    NEW -->|예| BASIC["보고서 기본정보 저장"]
+    BASIC --> DETAIL["발생지 · 정량자료 저장<br/>축종 이름 · isWild 추가 수집"]
+    DETAIL --> OK{"상세 적재 성공?"}
+    OK -->|예| DONE["detail_loaded = 1"]
+    OK -->|실패 · 재시도 소진| PENDING["detail_loaded = 0 유지<br/>다음 실행에서 복구"]
+    DONE --> NOTIFY["Slack · 선택적 ntfy 보고 알림"]
+    PENDING --> NOTIFY
+    NOTIFY --> COUNT["신규 발생: 해당 보고서가 최초 등록한<br/>고유 outbreak_id 수"]
+    COUNT --> LINK["보고서 대시보드 · WAHIS 원문으로 이동"]
 ```
-WAHIS API → 신규 Report 판별 → 기본정보 저장 → 상세정보 저장 → Slack 알림
-                                    (MySQL)      (재시도 5회)
-```
+
+상세 적재 실패가 보고서 알림 자체를 막지는 않습니다. 상세 미완료 시 신규 발생 건수는
+0건으로 단정하지 않고 **미확인**으로 표시합니다. Slack·ntfy 전송 실패는 각 상태로 관리합니다.
 
 1. 이전 실행에서 실패한 상세정보 복구
 2. 최신 페이지부터 조회, 한 페이지가 전부 기존 데이터면 중단
 3. 신규 Report의 기본정보 → 상세정보 순으로 저장
 4. 상세정보 성공 여부와 관계없이 Slack 알림 발송
+
+## 데이터 단위와 관계
+
+**보고서가 새로 올라왔다는 것과 발생지가 새로 생겼다는 것은 다릅니다.**
+Event는 사건 묶음, Report는 최초·후속 보고, Outbreak는 고유 발생 기록입니다.
+아래 Event는 별도 DB 테이블이 아니라 `event_id`로 표현되는 논리적 묶음입니다.
+
+```mermaid
+flowchart TB
+    EVENT["Event · event_id<br/>질병 사건 묶음"]
+    REPORT["disease_reports<br/>report_id · 제출일 · 아형"]
+    OUTBREAK["outbreaks<br/>outbreak_id · 발생일 · 위치<br/>사육 / 야생 / 혼합 / 미확인"]
+    SPECIES["outbreak_species<br/>축종 ID · 축종 이름 · is_wild"]
+    QUANTITY["report_quantitative<br/>이번 보고 / 누계<br/>감염 · 폐사 · 살처분 · 접종"]
+
+    EVENT -->|하나의 사건에 여러 보고서| REPORT
+    EVENT -->|발생지의 사건 소속| OUTBREAK
+    REPORT -->|created_by_report_id: 최초 등록| OUTBREAK
+    REPORT -.->|last_update_report_id: 최신 갱신| OUTBREAK
+    OUTBREAK -->|한 발생지에 여러 축종| SPECIES
+    REPORT -->|보고서별 정량자료| QUANTITY
+
+    classDef entity fill:#eff6ff,stroke:#2563eb,color:#172554
+    classDef core fill:#f5f3ff,stroke:#7c3aed,color:#2e1065
+    classDef detail fill:#ecfdf5,stroke:#059669,color:#064e3b
+    class EVENT,REPORT entity
+    class OUTBREAK core
+    class SPECIES,QUANTITY detail
+```
+
+| 확인하려는 값 | 계산·조회 기준 |
+|---|---|
+| 신규 보고서 수 | DB에 새로 들어온 `report_id` |
+| 해당 보고의 신규 발생 건수 | `created_by_report_id`가 해당 보고서인 `COUNT(DISTINCT outbreak_id)` |
+| 기간별 발생 건수 | `outbreaks.start_date`로 기간을 제한한 고유 ID 수 |
+| 발생지별 축종·사육/야생 | `outbreak_species.species_name`, `is_wild` 및 `outbreaks.animal_category` |
+| 감염·폐사 등 동물 수 | 보고서 정량자료의 신규·누계와 단위를 구분해 조회 |
+
+기존 발생지 정보가 갱신돼도 신규 발생 건수는 늘리지 않습니다. 현재 DB는 발생지의
+최초 등록·최신 갱신 관계를 보관하며 모든 과거 보고 시점의 수정 이력을 보존하지는 않습니다.
 
 ## 프로젝트 구조
 
