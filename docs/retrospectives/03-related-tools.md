@@ -153,6 +153,13 @@ GitHub 공식 문서도 schedule이 부하에 따라 지연될 수 있고 정각
 정확히 09:00 도착을 보장한 것으로 표시하지 않는다. 첫 적용일인 11월 12일 실제 생성·발송
 시각과 새 테이블 생성 권한을 운영에서 확인해야 한다.
 
+**운영 코드 반영 (2026-11-05):**
+[2e401ea](https://github.com/jshdata/wahis-slack-monitor/commit/2e401ea)를 main에 푸시하고
+GitHub 파일 조회로 모니터 후속 주간 단계와 독립 주간 schedule 제거를 확인했다.
+현재 날짜에 실제 CLI를 실행해 `Weekly digest skipped: not due in Asia/Seoul`을 확인했다.
+이 확인은 활성화일 이전에 주간 발송을 하지 않는다는 로컬 확인이며 운영 알림 테스트가 아니다.
+코드 반영은 완료됐고, 11월 12일 첫 자동 발송의 실제 시각·DB 상태 검증은 남아 있다.
+
 근거: [주간 발송 상태](../../database/weekly_delivery.py),
 [CLI 시간·중복 가드](../../weekly_main.py), [회귀 테스트](../../tests/test_weekly_schedule.py),
 [모니터 workflow](../../.github/workflows/wahis-monitor.yml).
