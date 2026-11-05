@@ -12,6 +12,7 @@ import pymysql
 from database.db import get_connection
 from slack.notifier import get_reason_label, send_slack_message
 from database.weekly_report_db import save_weekly_html
+from database.weekly_delivery import weekly_delivery
 
 KST = ZoneInfo('Asia/Seoul')
 
@@ -126,7 +127,17 @@ def weekly_public_base():
     return base
 
 
-def send_weekly_report(start, end, dry_run=False, output_path=None):
+def send_weekly_report(start, end, dry_run=False, output_path=None, once=False):
+    if once and not dry_run:
+        with weekly_delivery(end) as delivery:
+            if not delivery.ready:
+                print(f'Weekly digest skipped: {end:%Y-%m-%d}, status={delivery.status}')
+                return 0
+            return _send_weekly_report(start, end, dry_run, output_path, delivery)
+    return _send_weekly_report(start, end, dry_run, output_path)
+
+
+def _send_weekly_report(start, end, dry_run=False, output_path=None, delivery=None):
     from slack.weekly_html import build_weekly_html
 
     reports = load_weekly_reports(start, end)
@@ -140,6 +151,8 @@ def send_weekly_report(start, end, dry_run=False, output_path=None):
         base = weekly_public_base()
         token = save_weekly_html(html)
         url = f'{base}/weekly/{token}'
+        if delivery is not None:
+            delivery.begin_send()
         send_slack_message([
             {'type': 'section', 'text': {'type': 'mrkdwn', 'text': text}},
             {'type': 'actions', 'elements': [{
@@ -147,4 +160,6 @@ def send_weekly_report(start, end, dry_run=False, output_path=None):
                 'url': url, 'action_id': 'weekly_report_open',
             }]},
         ], text=text)
+        if delivery is not None:
+            delivery.mark_sent()
     return len(reports)

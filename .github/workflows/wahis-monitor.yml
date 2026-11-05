@@ -74,3 +74,10 @@ jobs:
       - name: Run WAHIS Monitor
         run: |
           python main.py
+
+      # Reuse the existing cron-job.org dispatch instead of a delayed weekly schedule.
+      # Today's digest was already delivered; start automatic delivery next Thursday.
+      - name: Send due weekly digest (Thursday 09:00 Asia/Seoul)
+        env:
+          WEEKLY_REPORT_BASE_URL: 'https://wahis-slack-monitor.onrender.com'
+        run: python weekly_main.py --scheduled --not-before 2026-11-12

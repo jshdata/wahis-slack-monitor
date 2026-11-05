@@ -1,13 +1,12 @@
 name: WAHIS Weekly Digest
 
 on:
-  schedule:
-    # Thursday 00:00 UTC = Thursday 09:00 Asia/Seoul.
-    - cron: '0 0 * * 4'
+  # Automatic Thursday delivery runs through wahis-monitor.yml's external dispatch.
+  # Keep this workflow for manual preview/recovery only.
   workflow_dispatch:
     inputs:
       week_ending:
-        description: 'Optional closing Thursday (YYYY-MM-DD); resends that week'
+        description: 'Optional closing Thursday (YYYY-MM-DD); already-sent weeks are skipped'
         required: false
         type: string
       dry_run:
@@ -48,9 +47,6 @@ jobs:
           test -n "$DB_SSL_CA_CERT"
           printf '%s\n' "$SLACK_MONITOR_ENV" > .env
           printf '%s\n' "$DB_SSL_CA_CERT" > ca.pem
-      - name: Refresh latest reports
-        if: github.event_name == 'schedule'
-        run: python main.py
       - name: Send weekly digest
         env:
           WEEK_ENDING: ${{ inputs.week_ending }}

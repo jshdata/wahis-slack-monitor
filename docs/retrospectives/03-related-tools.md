@@ -70,6 +70,93 @@ Slack 실패는 재전송 상태로 남기고, ntfy는 독립 outbox를 사용�
 [주간 요약](../../slack/weekly_report.py), [주간 workflow](../../.github/workflows/wahis-weekly.yml),
 [ea26958](https://github.com/jshdata/wahis-slack-monitor/commit/ea26958).
 
+### 2026-11-05 후속 — 주간 요약의 오전 집계 경계와 오후 발송 지연
+
+- **상태:** 확인 필요 — 주요 지연 구간 확인, 스케줄 우회·배포는 미실행.
+- **근거:** 공개 GitHub Actions REST 실행·job 단계 기록, 해당 실행 커밋의 workflow와 `weekly_window`, 기존 경계 테스트 2개.
+
+**배경·영향:** 사용자가 목요일 서울 09시까지 집계된 주간 알림을 오후에 받는다고 제보했다.
+오늘도 오후 2시대에 수신하여 집계 시간대와 발송 지연을 구분해 확인했다.
+
+**관찰과 원인:** 실제 실행 커밋 `83bda682f5a4a86f2c68a40289d17d522c1ae700`에서도
+예약은 `0 0 * * 4`(목요일 09:00 KST)였다. 최근 세 번의 `schedule` 실행은 다음과 같다.
+아래 시간은 모두 Asia/Seoul이다.
+
+| 날짜 | 실행 생성·시작 | 실행 완료 |
+|---|---|---|
+| 2026-10-22 | 12:20:22 | 12:21:31 |
+| 2026-10-29 | 13:25:52 | 13:26:36 |
+| 2026-11-05 | 14:10:28 | 14:11:29 |
+
+11월 5일 job 시작은 14:10:53, `Refresh latest reports`는 14:11:07~19,
+`Send weekly digest`는 14:11:19~26에 성공했다. 예정 시각부터 실행 생성까지
+5시간 10분 28초가 걸렸으므로 주요 지연은 Python 집계·발송 이전의 예약 트리거 구간이다.
+공유 concurrency group의 영향 가능성은 일반적으로 남지만 오늘 수시간 지연의 주된 구간은
+job 실행 후가 아니라 실행 생성 전이었다. GitHub 내부 지연의 세부 원인까지 확인한 것은 아니다.
+Slack 클라이언트의 정확한 표시·수신 시각은 별도 조회하지 않았다.
+
+`weekly_window`는 지연 실행해도 해당 목요일 09:00 KST를 종료 경계로 계산하므로
+오늘 집계 범위는 2026-10-29 09:00 이상~2026-11-05 09:00 미만으로 유지된다.
+오후 2시 실행을 오후 2시 집계 경계로 바꾸는 코드가 아니다.
+
+**시도와 선택 이유:** GitHub 커넥터의 파일 조회로 운영 커밋 설정을 확인했다.
+연결 도구에는 일반 schedule 실행 목록 조회 기능이 없어 공개 REST API를 읽기 전용으로 사용했다.
+알림 재발송이나 데이터 수집을 직접 실행하지 않고 단계별 시각으로 원인을 좁혔다.
+GitHub 공식 문서도 schedule이 부하에 따라 지연될 수 있고 정각이 고부하 시간이라고 설명한다.
+
+**조치와 검증:** 운영 설정·코드·외부 스케줄은 변경하지 않았다.
+기존 `test_thursday_boundary_and_adjacent_weeks`,
+`test_delayed_run_utc_input_and_year_boundary` 두 테스트를 로컬에서 실행해 통과했다.
+이는 집계 경계 검증이며 오전 9시 정시 발송을 검증한 것이 아니다.
+
+**남은 한계·다음 확인:** 기존 모니터처럼 외부 스케줄러에서 주간 workflow를 dispatch하는
+우회가 후보지만 아직 설정하지 않았다. 현재 수동 입력의 `dry_run` 기본값은 true이므로
+실제 정기 발송에는 false를 명시해야 한다. GitHub schedule을 함께 유지할 경우 주차별
+원자적 중복 방지와 최신화 단계의 실행 조건도 설계해야 한다. 외부 호출도 Actions runner
+대기·동시 실행 잠금까지 제거하거나 정확한 수신 시각을 보장하지는 않는다.
+
+근거: [11월 5일 실행](https://github.com/jshdata/wahis-slack-monitor/actions/runs/41972312492),
+[10월 29일 실행](https://github.com/jshdata/wahis-slack-monitor/actions/runs/40817704036),
+[10월 22일 실행](https://github.com/jshdata/wahis-slack-monitor/actions/runs/39716278270),
+[운영 커밋 workflow](https://github.com/jshdata/wahis-slack-monitor/blob/83bda682f5a4a86f2c68a40289d17d522c1ae700/.github/workflows/wahis-weekly.yml),
+[GitHub schedule 안내](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule).
+
+#### 같은 날 후속 — 기존 10분 외부 호출 경로를 주간 발송에 재사용
+
+- **상태:** 진행 중 — 로컬 구현·테스트 완료, 운영 반영 및 첫 정시 구간 발송 검증 대기.
+
+**시도와 선택 이유:** 사용자가 발송 시각 변경을 요청했다. 컴퓨터 사용 도구의 native pipe와
+브라우저 호스트가 제공되지 않아 cron-job.org UI에는 접근하지 못했다. 새 외부 스케줄을
+설정했다고 주장하는 대신, 기존 모니터의 `workflow_dispatch`가 실제로 05:00:32,
+05:10:17, 05:20:17, 05:30:24 UTC에 생성되어 성공한 것을 공개 실행 기록으로 확인했다.
+이미 동작하는 외부 10분 호출 경로에 목요일 09시 이후 주간 발송 확인을 추가하는 방식을 선택했다.
+
+**조치:** `wahis-monitor.yml`의 정상 수집 다음에 `--scheduled` 주간 실행을 추가했다.
+독립 `wahis-weekly.yml`의 GitHub 자동 예약은 제거하고 수동 미리보기·복구용으로 남겼다.
+오늘 11월 5일 요약은 기존 경로로 발송됐으므로 자동 활성화 하한을 11월 12일로 설정했다.
+그 이전에는 주간 DB나 Slack에 접근하지 않는다.
+
+동일 목요일의 여러 호출은 새 `weekly_digest_deliveries` 테이블과 MySQL 이름 잠금으로
+직렬화한다. Slack 호출 직전에 `sending`, 성공 후 `sent`를 커밋한다. 전송 결과가
+불확실하면 `uncertain`, 강제 종료 시 남은 `sending`을 자동 재전송하지 않는다.
+이는 DB와 Slack 간 원자적 트랜잭션이나 정확히 한 번 전송을 보장하는 구현이 아니다.
+중복보다 자동 누락·수동 확인을 선택한 경우를 로그에 드러낸다. HTML 생성 등 호출 전 실패는
+다음 모니터 실행에서 재시도할 수 있다. 명시적 수동 `--force`는 확인 후 재발송 용도로만 남겼다.
+
+**검증:** 로컬 `python -m unittest discover -s tests -p 'test_weekly*.py' -v`에서
+기존 주간·HTML 저장 테스트와 신규 경계·활성화일·중복·동시 실행·발송 불확실성 테스트
+**21개가 통과**했다. 외부 알림이나 운영 DB를 사용하는 발송 테스트는 실행하지 않았다.
+
+**남은 한계:** 오전 9시 이후 첫 모니터의 수집 완료·설치·runner 대기 시간이 더해진다.
+모니터 수집 자체가 계속 실패하면 주간 후속 단계도 실행되지 않는다. 외부 트리거가 중단될
+경우 GitHub 모니터 자체 예약은 남아 있지만 지연 가능성이 있다. 별도 주간 예약 복구나
+정확히 09:00 도착을 보장한 것으로 표시하지 않는다. 첫 적용일인 11월 12일 실제 생성·발송
+시각과 새 테이블 생성 권한을 운영에서 확인해야 한다.
+
+근거: [주간 발송 상태](../../database/weekly_delivery.py),
+[CLI 시간·중복 가드](../../weekly_main.py), [회귀 테스트](../../tests/test_weekly_schedule.py),
+[모니터 workflow](../../.github/workflows/wahis-monitor.yml).
+
 ## RET-OPS-04 — APQA 수입 관련 정보는 발생 통계와 별도로 연결했다
 
 **상태: 구현·커밋 완료, 원천 갱신과 도메인 검토 필요.**
