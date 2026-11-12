@@ -1,0 +1,113 @@
+{
+  "status": "exploratory_snapshot_only",
+  "end_month": "2026-06",
+  "selected_outbreaks": 47043,
+  "countries": 89,
+  "excluded_countries_unseen_in_training": 43,
+  "threshold_selected_on_validation_f1": 0.17000000000000004,
+  "splits": {
+    "train": {
+      "start": "2006-02",
+      "end": "2018-04",
+      "rows": 13083
+    },
+    "validation": {
+      "start": "2018-05",
+      "end": "2022-05",
+      "rows": 4361
+    },
+    "test": {
+      "start": "2022-06",
+      "end": "2026-06",
+      "rows": 4361
+    }
+  },
+  "validation": {
+    "n": 4361,
+    "prevalence": 0.16211878009630817,
+    "average_precision": 0.7113682307039766,
+    "roc_auc": 0.8783801673622675,
+    "brier": 0.08493309717437612,
+    "precision": 0.6923076923076923,
+    "recall": 0.5983026874115983,
+    "f1": 0.6418816388467374,
+    "confusion_matrix": [
+      [
+        3466,
+        188
+      ],
+      [
+        284,
+        423
+      ]
+    ]
+  },
+  "test": {
+    "n": 4361,
+    "prevalence": 0.2806695711992662,
+    "average_precision": 0.7826306996677845,
+    "roc_auc": 0.863711192159363,
+    "brier": 0.13378523368656992,
+    "precision": 0.7559523809523809,
+    "recall": 0.6225490196078431,
+    "f1": 0.6827956989247311,
+    "confusion_matrix": [
+      [
+        2891,
+        246
+      ],
+      [
+        462,
+        762
+      ]
+    ]
+  },
+  "baseline_constant": {
+    "n": 4361,
+    "prevalence": 0.2806695711992662,
+    "average_precision": 0.2806695711992662,
+    "roc_auc": 0.5,
+    "brier": 0.24069259321051525,
+    "precision": 0.0,
+    "recall": 0.0,
+    "f1": 0.0,
+    "confusion_matrix": [
+      [
+        3137,
+        0
+      ],
+      [
+        1224,
+        0
+      ]
+    ]
+  },
+  "baseline_previous_month": {
+    "n": 4361,
+    "prevalence": 0.2806695711992662,
+    "average_precision": 0.6516185876314616,
+    "roc_auc": 0.8378541433574811,
+    "brier": 0.13185049300619123,
+    "precision": 0.7631792376317924,
+    "recall": 0.7687908496732027,
+    "f1": 0.765974765974766,
+    "confusion_matrix": [
+      [
+        2845,
+        292
+      ],
+      [
+        283,
+        941
+      ]
+    ]
+  },
+  "limitations": [
+    "Absent records assumed zero; reporting/collection completeness unverified.",
+    "Current snapshot lacks historical availability timestamps; reporting delay and revisions can leak future knowledge.",
+    "Non-poultry HPAI category starts in 2017; historical surveillance/category comparability unverified.",
+    "Country universe limited to countries observed in training; never-reported countries excluded.",
+    "No causal interpretation, external climate/livestock predictors, or production deployment.",
+    "Temporal holdout does not substitute for rolling backtests or external validation."
+  ]
+}
