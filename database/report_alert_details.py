@@ -54,7 +54,6 @@ def get_report_alert_details(event):
             labels.append('미확인 포함' if labels else '미확인')
         result['animal_category'] = ' / '.join(labels) or '미확인'
         ordered = sorted(names)
-        result['species_names'] = tuple(sorted({name for name, _ in ordered}))
         if ordered:
             shown = [f'{name[:100]} ({label})' for name, label in ordered[:10]]
             if len(ordered) > 10:

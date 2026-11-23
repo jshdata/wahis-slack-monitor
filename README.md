@@ -2,20 +2,6 @@
 
 WOAH(세계동물보건기구) **WAHIS**에 새로 등록되는 동물질병 리포트를 자동으로 감지해 DB에 저장하고, Slack으로 알림과 조회·통계 기능을 제공하는 프로젝트입니다. ntfy를 설정하면 신규 보고 알림을 함께 받을 수 있습니다.
 
-## Slack 채널별 관심 조건 구독
-
-기본 `SLACK_WEBHOOK_URL`에는 전체 신규 보고를 보내고, 관심 채널에는 일치하는 보고를 추가로 보냅니다. 운영자는 각 채널을 대상으로 Slack Incoming Webhook을 만든 뒤, 로컬 `.env` 또는 GitHub Actions의 `SLACK_MONITOR_ENV` Secret에 아래 형식으로 추가합니다.
-
-```dotenv
-WAHIS_SLACK_SUBSCRIPTIONS='[{"name":"france-poultry","webhook_env":"SLACK_FRANCE_POULTRY_WEBHOOK_URL","countries":["France"],"species":["Chicken"]}]'
-SLACK_FRANCE_POULTRY_WEBHOOK_URL=<해당 채널의 Incoming Webhook URL>
-```
-
-- `countries`, `diseases`, `species`에 WAHIS의 국가명·질병명·축종명을 지정합니다. 대소문자와 양끝 공백을 무시하고 이름 전체를 비교합니다.
-- 같은 항목에 여러 값을 넣으면 그중 하나와 일치하면 됩니다. 둘 이상의 항목을 설정하면 모두 충족해야 합니다. 생략하거나 빈 목록인 항목은 필터링하지 않으며, 구독마다 한 항목 이상을 지정해야 합니다.
-- 축종은 이번 보고가 갱신한 발생지에서 확인한 이름을 사용합니다. 축종을 확인할 수 없는 보고는 축종 조건을 충족하지 않습니다.
-- 초기 사용 시 MySQL 계정에 `wahis_slack_deliveries` 테이블 생성 권한이 필요합니다. 성공한 채널은 보고 ID와 구독 `name`으로 기록하므로 재시도 중에는 이름을 유지합니다. Slack이 수신한 직후 DB 기록이 실패하면 중복 전송될 수 있습니다.
-
 ## 서비스 흐름 한눈에 보기
 
 **새 보고 수집 → 발생지·축종 저장 → Slack 알림 → 지도·추이·상세자료 확인**으로 이어집니다.

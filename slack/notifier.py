@@ -6,7 +6,6 @@ from dotenv import load_dotenv
 from datetime import datetime
 from database.report_alert_details import get_report_alert_details
 from slack.report_dashboard_link import report_dashboard_url
-from slack.subscriptions import get_subscriptions, send_subscribed_alert
 
 
 load_dotenv()
@@ -16,12 +15,12 @@ load_dotenv()
 # Slack 메시지 전송
 # =========================================================
 
-def send_slack_message(blocks, text="WAHIS 신규 리포트", *, webhook_url=None):
+def send_slack_message(blocks, text="WAHIS 신규 리포트"):
     """
     Slack Incoming Webhook으로 Block Kit 메시지를 전송한다.
     """
 
-    webhook_url = webhook_url or os.getenv("SLACK_WEBHOOK_URL")
+    webhook_url = os.getenv("SLACK_WEBHOOK_URL")
 
     if not webhook_url:
         raise ValueError(
@@ -33,12 +32,13 @@ def send_slack_message(blocks, text="WAHIS 신규 리포트", *, webhook_url=Non
         "blocks": blocks
     }
 
-    try:
-        response = requests.post(webhook_url, json=payload, timeout=10, allow_redirects=False)
-        if response.status_code != 200 or response.text.strip() != "ok":
-            raise RuntimeError(f"Slack webhook rejected the message (HTTP {response.status_code})")
-    except requests.RequestException:
-        raise RuntimeError("Slack webhook request failed") from None
+    response = requests.post(
+        webhook_url,
+        json=payload,
+        timeout=10
+    )
+
+    response.raise_for_status()
 
     print("Slack 알림 전송 성공")
 
@@ -370,16 +370,14 @@ def send_new_report_alert(event):
             'action_id': 'view_report_dashboard',
         })
 
-    text = (
-        f"{alert_title} - "
-        f"{country} / {disease}\n"
-        f"신규 발생: {details['new_outbreaks']}\n"
-        f"혈청형·아형: {details['subtype']} | "
-        f"사육·야생: {details['animal_category']}\n"
-        f"축종: {details['species']}"
+    send_slack_message(
+        blocks=blocks,
+        text=(
+            f"{alert_title} - "
+            f"{country} / {disease}\n"
+            f"신규 발생: {details['new_outbreaks']}\n"
+            f"혈청형·아형: {details['subtype']} | "
+            f"사육·야생: {details['animal_category']}\n"
+            f"축종: {details['species']}"
+        )
     )
-    subscriptions = get_subscriptions()
-    if subscriptions:
-        send_subscribed_alert(event, details, subscriptions, blocks, text, send_slack_message)
-    else:
-        send_slack_message(blocks=blocks, text=text)
